@@ -1,0 +1,27 @@
+# Django設定
+SECRET_KEY=django-insecure-docker-secret-key-change-in-production
+DEBUG=True
+ALLOWED_HOSTS=localhost,127.0.0.1,web,nginx
+DJANGO_SETTINGS_MODULE=config.settings_docker
+
+# PostgreSQL設定
+POSTGRES_DB=sandaproject
+POSTGRES_USER=sandauser
+POSTGRES_PASSWORD=sandapass
+POSTGRES_HOST=db
+POSTGRES_PORT=5432
+
+# Redis設定
+REDIS_HOST=redis
+REDIS_PORT=6379
+
+# Oracle設定
+ORACLE_SERVICE_NAME=oracle:1521/XEPDB1
+ORACLE_DATABASE=XEPDB1
+ORACLE_USER=system
+ORACLE_PASSWORD=oraclepass
+ORACLE_HOST=oracle
+ORACLE_PORT=1521
+
+# ログレベル
+DJANGO_LOG_LEVEL=INFO
