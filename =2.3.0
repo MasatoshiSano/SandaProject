@@ -1,0 +1,13 @@
+Requirement already satisfied: oracledb in /usr/local/lib/python3.10/site-packages (1.4.2)
+Collecting oracledb
+  Downloading oracledb-3.2.0-cp310-cp310-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (2.6 MB)
+     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 2.6/2.6 MB 12.1 MB/s eta 0:00:00
+Requirement already satisfied: cryptography>=3.2.1 in /usr/local/lib/python3.10/site-packages (from oracledb) (45.0.5)
+Requirement already satisfied: cffi>=1.14 in /usr/local/lib/python3.10/site-packages (from cryptography>=3.2.1->oracledb) (1.17.1)
+Requirement already satisfied: pycparser in /usr/local/lib/python3.10/site-packages (from cffi>=1.14->cryptography>=3.2.1->oracledb) (2.22)
+Installing collected packages: oracledb
+  Attempting uninstall: oracledb
+    Found existing installation: oracledb 1.4.2
+    Uninstalling oracledb-1.4.2:
+      Successfully uninstalled oracledb-1.4.2
+Successfully installed oracledb-3.2.0

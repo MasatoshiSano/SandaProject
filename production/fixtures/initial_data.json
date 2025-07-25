@@ -1,0 +1,294 @@
+[
+  {
+    "model": "production.line",
+    "pk": 1,
+    "fields": {
+      "name": "ライン1",
+      "description": "メイン生産ライン",
+      "is_active": true,
+      "created_at": "2024-01-01T00:00:00Z",
+      "updated_at": "2024-01-01T00:00:00Z"
+    }
+  },
+  {
+    "model": "production.line",
+    "pk": 2,
+    "fields": {
+      "name": "ライン2",
+      "description": "サブ生産ライン",
+      "is_active": true,
+      "created_at": "2024-01-01T00:00:00Z",
+      "updated_at": "2024-01-01T00:00:00Z"
+    }
+  },
+  {
+    "model": "production.machine",
+    "pk": 1,
+    "fields": {
+      "name": "成形機A1",
+      "line": 1,
+      "description": "射出成形機 A1号機",
+      "is_active": true,
+      "created_at": "2024-01-01T00:00:00Z",
+      "updated_at": "2024-01-01T00:00:00Z"
+    }
+  },
+  {
+    "model": "production.machine",
+    "pk": 2,
+    "fields": {
+      "name": "成形機A2",
+      "line": 1,
+      "description": "射出成形機 A2号機",
+      "is_active": true,
+      "created_at": "2024-01-01T00:00:00Z",
+      "updated_at": "2024-01-01T00:00:00Z"
+    }
+  },
+  {
+    "model": "production.machine",
+    "pk": 3,
+    "fields": {
+      "name": "プレス機B1",
+      "line": 2,
+      "description": "プレス機 B1号機",
+      "is_active": true,
+      "created_at": "2024-01-01T00:00:00Z",
+      "updated_at": "2024-01-01T00:00:00Z"
+    }
+  },
+  {
+    "model": "production.machine",
+    "pk": 4,
+    "fields": {
+      "name": "切削機C1",
+      "line": 2,
+      "description": "CNC切削機 C1号機",
+      "is_active": true,
+      "created_at": "2024-01-01T00:00:00Z",
+      "updated_at": "2024-01-01T00:00:00Z"
+    }
+  },
+  {
+    "model": "production.category",
+    "pk": 1,
+    "fields": {
+      "name": "プラスチック製品",
+      "description": "射出成形による樹脂製品",
+      "color": "#28a745",
+      "is_active": true,
+      "created_at": "2024-01-01T00:00:00Z",
+      "updated_at": "2024-01-01T00:00:00Z"
+    }
+  },
+  {
+    "model": "production.category",
+    "pk": 2,
+    "fields": {
+      "name": "金属部品",
+      "description": "プレス・切削による金属部品",
+      "color": "#007bff",
+      "is_active": true,
+      "created_at": "2024-01-01T00:00:00Z",
+      "updated_at": "2024-01-01T00:00:00Z"
+    }
+  },
+  {
+    "model": "production.category",
+    "pk": 3,
+    "fields": {
+      "name": "精密部品",
+      "description": "高精度が要求される部品",
+      "color": "#dc3545",
+      "is_active": true,
+      "created_at": "2024-01-01T00:00:00Z",
+      "updated_at": "2024-01-01T00:00:00Z"
+    }
+  },
+  {
+    "model": "production.tag",
+    "pk": 1,
+    "fields": {
+      "name": "高速",
+      "description": "高速生産対応",
+      "color": "#28a745",
+      "is_active": true,
+      "created_at": "2024-01-01T00:00:00Z",
+      "updated_at": "2024-01-01T00:00:00Z"
+    }
+  },
+  {
+    "model": "production.tag",
+    "pk": 2,
+    "fields": {
+      "name": "要注意",
+      "description": "品質管理要注意",
+      "color": "#ffc107",
+      "is_active": true,
+      "created_at": "2024-01-01T00:00:00Z",
+      "updated_at": "2024-01-01T00:00:00Z"
+    }
+  },
+  {
+    "model": "production.tag",
+    "pk": 3,
+    "fields": {
+      "name": "新製品",
+      "description": "新規開発製品",
+      "color": "#17a2b8",
+      "is_active": true,
+      "created_at": "2024-01-01T00:00:00Z",
+      "updated_at": "2024-01-01T00:00:00Z"
+    }
+  },
+  {
+    "model": "production.tag",
+    "pk": 4,
+    "fields": {
+      "name": "量産",
+      "description": "量産対応製品",
+      "color": "#6f42c1",
+      "is_active": true,
+      "created_at": "2024-01-01T00:00:00Z",
+      "updated_at": "2024-01-01T00:00:00Z"
+    }
+  },
+  {
+    "model": "production.part",
+    "pk": 1,
+    "fields": {
+      "name": "ハウジングA",
+      "part_number": "HSG-001",
+      "category": 1,
+      "target_pph": 120,
+      "cycle_time": 30.0,
+      "description": "電子機器用プラスチックハウジング",
+      "is_active": true,
+      "created_at": "2024-01-01T00:00:00Z",
+      "updated_at": "2024-01-01T00:00:00Z"
+    }
+  },
+  {
+    "model": "production.part",
+    "pk": 2,
+    "fields": {
+      "name": "カバーB",
+      "part_number": "COV-002",
+      "category": 1,
+      "target_pph": 150,
+      "cycle_time": 24.0,
+      "description": "防水カバー部品",
+      "is_active": true,
+      "created_at": "2024-01-01T00:00:00Z",
+      "updated_at": "2024-01-01T00:00:00Z"
+    }
+  },
+  {
+    "model": "production.part",
+    "pk": 3,
+    "fields": {
+      "name": "ブラケットC",
+      "part_number": "BRC-003",
+      "category": 2,
+      "target_pph": 80,
+      "cycle_time": 45.0,
+      "description": "金属製取付ブラケット",
+      "is_active": true,
+      "created_at": "2024-01-01T00:00:00Z",
+      "updated_at": "2024-01-01T00:00:00Z"
+    }
+  },
+  {
+    "model": "production.part",
+    "pk": 4,
+    "fields": {
+      "name": "シャフトD",
+      "part_number": "SHF-004",
+      "category": 3,
+      "target_pph": 50,
+      "cycle_time": 72.0,
+      "description": "高精度回転シャフト",
+      "is_active": true,
+      "created_at": "2024-01-01T00:00:00Z",
+      "updated_at": "2024-01-01T00:00:00Z"
+    }
+  },
+  {
+    "model": "production.part",
+    "pk": 5,
+    "fields": {
+      "name": "ギアE",
+      "part_number": "GER-005",
+      "category": 3,
+      "target_pph": 60,
+      "cycle_time": 60.0,
+      "description": "精密歯車",
+      "is_active": true,
+      "created_at": "2024-01-01T00:00:00Z",
+      "updated_at": "2024-01-01T00:00:00Z"
+    }
+  },
+  {
+    "model": "production.userlineaccess",
+    "pk": 1,
+    "fields": {
+      "user": 1,
+      "line": 1,
+      "created_at": "2024-01-01T00:00:00Z"
+    }
+  },
+  {
+    "model": "production.userlineaccess",
+    "pk": 2,
+    "fields": {
+      "user": 1,
+      "line": 2,
+      "created_at": "2024-01-01T00:00:00Z"
+    }
+  },
+  {
+    "model": "production.workingday",
+    "pk": 1,
+    "fields": {
+      "date": "2024-12-23",
+      "is_working": true,
+      "is_holiday": false,
+      "holiday_name": null,
+      "start_time": "08:00:00",
+      "end_time": "17:00:00",
+      "break_minutes": 60,
+      "created_at": "2024-01-01T00:00:00Z",
+      "updated_at": "2024-01-01T00:00:00Z"
+    }
+  },
+  {
+    "model": "production.workingday",
+    "pk": 2,
+    "fields": {
+      "date": "2024-12-24",
+      "is_working": true,
+      "is_holiday": false,
+      "holiday_name": null,
+      "start_time": "08:00:00",
+      "end_time": "17:00:00",
+      "break_minutes": 60,
+      "created_at": "2024-01-01T00:00:00Z",
+      "updated_at": "2024-01-01T00:00:00Z"
+    }
+  },
+  {
+    "model": "production.workingday",
+    "pk": 3,
+    "fields": {
+      "date": "2024-12-25",
+      "is_working": false,
+      "is_holiday": true,
+      "holiday_name": "クリスマス",
+      "start_time": null,
+      "end_time": null,
+      "break_minutes": 0,
+      "created_at": "2024-01-01T00:00:00Z",
+      "updated_at": "2024-01-01T00:00:00Z"
+    }
+  }
+] 

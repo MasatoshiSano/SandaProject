@@ -1,0 +1,324 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}実績一覧 - {{ line.name }}{% endblock %}
+
+{% block extra_css %}
+<style>
+.table-responsive {
+    box-shadow: 0 0 10px rgba(0,0,0,0.1);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.table th {
+    background: linear-gradient(135deg, var(--bs-primary), var(--bs-info));
+    color: white;
+    border: none;
+    font-weight: 600;
+    text-align: center;
+    vertical-align: middle;
+    white-space: nowrap;
+}
+
+.table td {
+    vertical-align: middle;
+    text-align: center;
+    border-color: var(--bs-gray-200);
+}
+
+.table tbody tr:hover {
+    background-color: var(--bs-primary-bg-subtle);
+    transition: background-color 0.2s ease;
+}
+
+.achievement-badge {
+    font-size: 0.9rem;
+    padding: 0.25rem 0.75rem;
+    border-radius: 20px;
+    font-weight: 600;
+}
+
+.filter-section {
+    background: var(--bs-light);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+}
+
+.stats-card {
+    background: linear-gradient(135deg, var(--bs-primary-bg-subtle), var(--bs-info-bg-subtle));
+    border: none;
+    border-radius: 10px;
+}
+
+.btn-action {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.875rem;
+    border-radius: 4px;
+}
+
+.serial-number {
+    font-family: 'Courier New', monospace;
+    font-size: 0.9rem;
+    background: var(--bs-gray-100);
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+}
+
+@media (max-width: 768px) {
+    .table-responsive {
+        font-size: 0.875rem;
+    }
+    
+    .filter-section .row > div {
+        margin-bottom: 1rem;
+    }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <!-- ヘッダー -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <h2 class="mb-1">
+                        <i class="bi bi-table me-2"></i>実績一覧
+                    </h2>
+                    <p class="text-muted mb-0">
+                        {{ line.name }} - 生産実績データ
+                    </p>
+                </div>
+                <div class="d-flex gap-2">
+                    <a href="{% url 'production:result_create' %}" class="btn btn-success">
+                        <i class="bi bi-plus-circle me-2"></i>実績登録
+                    </a>
+                    <a href="{% url 'production:dashboard' line.id date_str %}" class="btn btn-outline-primary">
+                        <i class="bi bi-speedometer2 me-2"></i>ダッシュボード
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- フィルター -->
+    <div class="filter-section">
+        <h5 class="mb-3"><i class="bi bi-funnel me-2"></i>フィルター</h5>
+        <form method="get" class="row g-3">
+            <div class="col-md-3">
+                <label class="form-label">開始日時</label>
+                {{ filter_form.timestamp_start }}
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">終了日時</label>
+                {{ filter_form.timestamp_end }}
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">計画</label>
+                {{ filter_form.plan }}
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">機種</label>
+                {{ filter_form.part }}
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">機種カテゴリ</label>
+                {{ filter_form.category }}
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">設備</label>
+                {{ filter_form.machine }}
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">実績数量(最小)</label>
+                {{ filter_form.quantity_min }}
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">実績数量(最大)</label>
+                {{ filter_form.quantity_max }}
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">シリアル番号</label>
+                {{ filter_form.serial_number }}
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">判定</label>
+                {{ filter_form.judgment }}
+            </div>
+            <div class="col-md-2 d-flex align-items-end">
+                <button type="submit" class="btn btn-primary me-2">
+                    <i class="bi bi-search"></i> 検索
+                </button>
+                <a href="{% url 'production:result_list' line.id %}" class="btn btn-outline-secondary">
+                    <i class="bi bi-arrow-clockwise"></i>
+                </a>
+            </div>
+        </form>
+    </div>
+
+    <!-- 統計情報 -->
+    {% if results %}
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="card stats-card text-center">
+                <div class="card-body">
+                    <h3 class="text-primary">{{ page_obj.paginator.count }}</h3>
+                    <p class="text-muted mb-0">総実績数</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card stats-card text-center">
+                <div class="card-body">
+                    <h3 class="text-success">{{ results|length }}</h3>
+                    <p class="text-muted mb-0">表示中の実績数</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card stats-card text-center">
+                <div class="card-body">
+                    <h3 class="text-info">-</h3>
+                    <p class="text-muted mb-0">平均達成率</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card stats-card text-center">
+                <div class="card-body">
+                    <h3 class="text-warning">-</h3>
+                    <p class="text-muted mb-0">OK率</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- 実績テーブル -->
+    <div class="row">
+        <div class="col-12">
+            {% if results %}
+            <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                    <thead>
+                        <tr>
+                            <th>タイムスタンプ</th>
+                            <th>計画</th>
+                            <th>機種</th>
+                            <th>カテゴリ</th>
+                            <th>設備</th>
+                            <th>実績数量</th>
+                            <th>シリアル番号</th>
+                            <th>判定</th>
+                            <th>備考</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for result in results %}
+                        <tr>
+                            <td>
+                                <div class="fw-bold">{{ result.timestamp|date:"n/j H:i" }}</div>
+                                <small class="text-muted">{{ result.timestamp|date:"Y" }}</small>
+                            </td>
+                            <td>
+                                <div class="fw-bold">{{ result.part.name }}</div>
+                                <small class="text-muted">{{ result.line.name }}</small>
+                            </td>
+                            <td>
+                                <div class="fw-bold">{{ result.part.name }}</div>
+                                {% if result.part.part_number %}
+                                <small class="text-muted">{{ result.part.part_number }}</small>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <span class="badge" style="background-color: {{ result.part.category.color }}20; color: {{ result.part.category.color }};">
+                                    {{ result.part.category.name }}
+                                </span>
+                            </td>
+                            <td>{{ result.machine.name }}</td>
+                            <td>
+                                <span class="fw-bold text-success">{{ result.quantity }}</span>
+                            </td>
+                            <td>
+                                <span class="serial-number">{{ result.serial_number }}</span>
+                            </td>
+                            <td>
+                                <span class="achievement-badge badge bg-{% if result.judgment == 'OK' %}success{% else %}danger{% endif %}">
+                                    {{ result.judgment }}
+                                </span>
+                            </td>
+                            <td>
+                                {% if result.notes %}
+                                <span class="text-muted" title="{{ result.notes }}">
+                                    {{ result.notes|truncatechars:20 }}
+                                </span>
+                                {% else %}
+                                <span class="text-muted">-</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <div class="d-flex gap-1">
+                                    <a href="{% url 'production:result_update' result.pk %}" 
+                                       class="btn btn-outline-primary btn-action" 
+                                       title="編集">
+                                        <i class="bi bi-pencil"></i>
+                                    </a>
+                                    <a href="{% url 'production:result_delete' result.pk %}" 
+                                       class="btn btn-outline-danger btn-action" 
+                                       title="削除"
+                                       onclick="return confirm('この実績を削除しますか？')">
+                                        <i class="bi bi-trash"></i>
+                                    </a>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- ページネーション -->
+            {% if is_paginated %}
+            <div class="d-flex justify-content-center mt-4">
+                <nav>
+                    <ul class="pagination">
+                        {% if page_obj.has_previous %}
+                        <li class="page-item">
+                            <a class="page-link" href="?{% for key, value in request.GET.items %}{% if key != 'page' %}{{ key }}={{ value }}&{% endif %}{% endfor %}page={{ page_obj.previous_page_number }}">前へ</a>
+                        </li>
+                        {% endif %}
+                        
+                        <li class="page-item active">
+                            <span class="page-link">{{ page_obj.number }} / {{ page_obj.paginator.num_pages }}</span>
+                        </li>
+                        
+                        {% if page_obj.has_next %}
+                        <li class="page-item">
+                            <a class="page-link" href="?{% for key, value in request.GET.items %}{% if key != 'page' %}{{ key }}={{ value }}&{% endif %}{% endfor %}page={{ page_obj.next_page_number }}">次へ</a>
+                        </li>
+                        {% endif %}
+                    </ul>
+                </nav>
+            </div>
+            {% endif %}
+
+            {% else %}
+            <div class="text-center py-5">
+                <div class="mb-3">
+                    <i class="bi bi-inbox display-1 text-muted"></i>
+                </div>
+                <h3 class="text-muted">実績データがありません</h3>
+                <p class="text-muted">フィルター条件を変更するか、新しい実績を登録してください。</p>
+                <a href="{% url 'production:result_create' %}" class="btn btn-success">
+                    <i class="bi bi-plus-circle me-2"></i>実績登録
+                </a>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %} 

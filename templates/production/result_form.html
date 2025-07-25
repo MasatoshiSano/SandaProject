@@ -1,0 +1,544 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}
+{% if form.instance.pk %}実績編集{% else %}実績登録{% endif %}
+{% endblock %}
+
+{% block extra_css %}
+<style>
+.form-section {
+    background: var(--bs-light);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+    border-left: 4px solid var(--bs-success);
+}
+
+.plan-info {
+    background: var(--bs-primary-bg-subtle);
+    border: 1px solid var(--bs-primary-border-subtle);
+    border-radius: 6px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+}
+
+.calculation-display {
+    background: var(--bs-info-bg-subtle);
+    border: 1px solid var(--bs-info-border-subtle);
+    border-radius: 6px;
+    padding: 1rem;
+    margin-top: 1rem;
+}
+
+.downtime-entry {
+    background: var(--bs-warning-bg-subtle);
+    border: 1px solid var(--bs-warning-border-subtle);
+    border-radius: 6px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+}
+
+.required-field {
+    color: var(--bs-danger);
+}
+
+.achievement-preview {
+    font-size: 1.5rem;
+    font-weight: bold;
+    padding: 1rem;
+    border-radius: 8px;
+    text-align: center;
+}
+
+@media (max-width: 768px) {
+    .form-section {
+        padding: 1rem;
+    }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <!-- ヘッダー -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <h2 class="mb-1">
+                        <i class="bi bi-{% if form.instance.pk %}pencil{% else %}plus-circle{% endif %} me-2"></i>
+                        {% if form.instance.pk %}実績編集{% else %}実績登録{% endif %}
+                    </h2>
+                    <p class="text-muted mb-0">
+                        生産実績データの{% if form.instance.pk %}編集{% else %}登録{% endif %}
+                    </p>
+                </div>
+                <div>
+                    {% if default_line %}
+                    <a href="{% url 'production:result_list' default_line.id %}" class="btn btn-outline-secondary">
+                        <i class="bi bi-arrow-left me-2"></i>一覧に戻る
+                    </a>
+                    {% else %}
+                    <a href="{% url 'production:line_select' %}" class="btn btn-outline-secondary">
+                        <i class="bi bi-arrow-left me-2"></i>ライン選択に戻る
+                    </a>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <form method="post" id="resultForm">
+        {% csrf_token %}
+        
+        <!-- エラー表示 -->
+        {% if form.non_field_errors %}
+        <div class="alert alert-danger">
+            {{ form.non_field_errors }}
+        </div>
+        {% endif %}
+
+        <div class="row">
+            <div class="col-lg-8">
+                <!-- 計画選択 -->
+                {% if not form.instance.pk %}
+                <div class="form-section">
+                    <h4 class="mb-3">
+                        <i class="bi bi-calendar-check me-2"></i>計画選択
+                    </h4>
+                    
+                    <div class="mb-3">
+                        <label for="{{ form.plan.id_for_label }}" class="form-label">
+                            計画 <span class="required-field">*</span>
+                        </label>
+                        {{ form.plan }}
+                        {% if form.plan.errors %}
+                        <div class="text-danger small mt-1">{{ form.plan.errors }}</div>
+                        {% endif %}
+                        <div class="form-text">実績を登録する計画を選択してください。</div>
+                    </div>
+                    
+                    <!-- 選択された計画の情報表示 -->
+                    <div id="plan-info" class="plan-info" style="display: none;">
+                        <h6>選択された計画</h6>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <strong>機種:</strong> <span id="plan-part">-</span><br>
+                                <strong>機械:</strong> <span id="plan-machine">-</span><br>
+                                <strong>日付:</strong> <span id="plan-date">-</span>
+                            </div>
+                            <div class="col-md-6">
+                                <strong>時間:</strong> <span id="plan-time">-</span><br>
+                                <strong>計画数量:</strong> <span id="plan-quantity">-</span>個<br>
+                                <strong>目標PPH:</strong> <span id="plan-pph">-</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% else %}
+                <!-- 編集時は計画情報を表示 -->
+                <div class="plan-info">
+                    <h6>対象計画</h6>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <strong>機種:</strong> {{ form.instance.plan.part.name }}<br>
+                            <strong>機械:</strong> {{ form.instance.plan.machine.name }}<br>
+                            <strong>日付:</strong> {{ form.instance.plan.date|date:"Y年n月j日" }}
+                        </div>
+                        <div class="col-md-6">
+                            <strong>時間:</strong> {{ form.instance.plan.start_time|time:"H:i" }} - {{ form.instance.plan.end_time|time:"H:i" }}<br>
+                            <strong>計画数量:</strong> {{ form.instance.plan.planned_quantity }}個<br>
+                            <strong>目標PPH:</strong> {{ form.instance.plan.part.target_pph }}
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+
+                <!-- 実績数量 -->
+                <div class="form-section">
+                    <h4 class="mb-3">
+                        <i class="bi bi-123 me-2"></i>実績数量
+                    </h4>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="{{ form.actual_quantity.id_for_label }}" class="form-label">
+                                実績数量 <span class="required-field">*</span>
+                            </label>
+                            {{ form.actual_quantity }}
+                            {% if form.actual_quantity.errors %}
+                            <div class="text-danger small mt-1">{{ form.actual_quantity.errors }}</div>
+                            {% endif %}
+                        </div>
+                        
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">達成率プレビュー</label>
+                            <div id="achievement-preview" class="achievement-preview bg-light">
+                                --%
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- 計算結果表示 -->
+                    <div id="calculation-result" class="calculation-display" style="display: none;">
+                        <div class="row">
+                            <div class="col-md-3">
+                                <strong>実際PPH:</strong> <span id="actual-pph">-</span>
+                            </div>
+                            <div class="col-md-3">
+                                <strong>効率:</strong> <span id="efficiency">-</span>%
+                            </div>
+                            <div class="col-md-3">
+                                <strong>差異:</strong> <span id="variance">-</span>個
+                            </div>
+                            <div class="col-md-3">
+                                <strong>評価:</strong> <span id="evaluation">-</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 停止時間 -->
+                <div class="form-section">
+                    <h4 class="mb-3">
+                        <i class="bi bi-pause-circle me-2"></i>停止時間
+                        <button type="button" id="add-downtime" class="btn btn-sm btn-outline-warning ms-2">
+                            <i class="bi bi-plus"></i> 停止時間追加
+                        </button>
+                    </h4>
+                    
+                    <div id="downtime-container">
+                        <!-- 停止時間エントリがここに追加される -->
+                    </div>
+                    
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle me-2"></i>
+                        <strong>総停止時間:</strong> <span id="total-downtime">0</span>分
+                    </div>
+                </div>
+
+                <!-- 備考 -->
+                <div class="form-section">
+                    <h4 class="mb-3">
+                        <i class="bi bi-chat-text me-2"></i>備考
+                    </h4>
+                    
+                    <div class="mb-3">
+                        <label for="{{ form.notes.id_for_label }}" class="form-label">備考</label>
+                        {{ form.notes }}
+                        {% if form.notes.errors %}
+                        <div class="text-danger small mt-1">{{ form.notes.errors }}</div>
+                        {% endif %}
+                        <div class="form-text">品質問題、設備トラブル、その他特記事項があれば記入してください。</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- サイドバー -->
+            <div class="col-lg-4">
+                <!-- 保存ボタン -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <i class="bi bi-floppy me-2"></i>保存
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <button type="submit" class="btn btn-success w-100 mb-2">
+                            <i class="bi bi-check-circle me-2"></i>
+                            {% if form.instance.pk %}更新{% else %}登録{% endif %}
+                        </button>
+                        {% if default_line %}
+                        <a href="{% url 'production:result_list' default_line.id %}" class="btn btn-outline-secondary w-100">
+                            <i class="bi bi-x-circle me-2"></i>キャンセル
+                        </a>
+                        {% else %}
+                        <a href="{% url 'production:line_select' %}" class="btn btn-outline-secondary w-100">
+                            <i class="bi bi-x-circle me-2"></i>キャンセル
+                        </a>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- 実績サマリー -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <i class="bi bi-graph-up me-2"></i>実績サマリー
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <div id="summary-content">
+                            <p class="text-muted text-center">計画を選択してください</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ヘルプ -->
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <i class="bi bi-question-circle me-2"></i>ヘルプ
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <ul class="list-unstyled mb-0">
+                            <li class="mb-2">
+                                <i class="bi bi-lightbulb text-warning me-2"></i>
+                                <strong>達成率:</strong> 実績数量 ÷ 計画数量 × 100
+                            </li>
+                            <li class="mb-2">
+                                <i class="bi bi-clock text-info me-2"></i>
+                                <strong>停止時間:</strong> 設備停止や段取り替えの時間を記録
+                            </li>
+                            <li class="mb-2">
+                                <i class="bi bi-calculator text-secondary me-2"></i>
+                                <strong>効率:</strong> 停止時間を考慮した実際の生産効率
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </form>
+</div>
+
+<!-- 停止時間エントリテンプレート -->
+<template id="downtime-template">
+    <div class="downtime-entry">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+            <h6 class="mb-0">停止時間 #<span class="downtime-number"></span></h6>
+            <button type="button" class="btn btn-sm btn-outline-danger remove-downtime">
+                <i class="bi bi-trash"></i>
+            </button>
+        </div>
+        <div class="row">
+            <div class="col-md-4">
+                <label class="form-label">開始時間</label>
+                <input type="time" class="form-control downtime-start" name="downtime_start[]">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">終了時間</label>
+                <input type="time" class="form-control downtime-end" name="downtime_end[]">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">時間(分)</label>
+                <input type="number" class="form-control downtime-duration" name="downtime_duration[]" readonly>
+            </div>
+        </div>
+        <div class="row mt-2">
+            <div class="col-12">
+                <label class="form-label">停止理由</label>
+                <input type="text" class="form-control" name="downtime_reason[]" placeholder="設備トラブル、段取り替え等">
+            </div>
+        </div>
+    </div>
+</template>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const planSelect = document.getElementById('{{ form.plan.id_for_label }}');
+    const actualQuantityInput = document.getElementById('{{ form.actual_quantity.id_for_label }}');
+    const addDowntimeBtn = document.getElementById('add-downtime');
+    const downtimeContainer = document.getElementById('downtime-container');
+    const downtimeTemplate = document.getElementById('downtime-template');
+    
+    let downtimeCounter = 0;
+    let currentPlan = null;
+    
+    // 計画選択時の処理
+    if (planSelect) {
+        planSelect.addEventListener('change', function() {
+            const planId = this.value;
+            if (planId) {
+                fetch(`/production/api/plan-info/${planId}/`)
+                    .then(response => response.json())
+                    .then(data => {
+                        currentPlan = data;
+                        updatePlanInfo(data);
+                        updateCalculations();
+                    })
+                    .catch(error => {
+                        console.error('Error fetching plan info:', error);
+                    });
+            } else {
+                document.getElementById('plan-info').style.display = 'none';
+                currentPlan = null;
+            }
+        });
+    }
+    
+    // 実績数量変更時の処理
+    actualQuantityInput.addEventListener('input', updateCalculations);
+    
+    // 計画情報更新
+    function updatePlanInfo(plan) {
+        document.getElementById('plan-part').textContent = plan.part_name;
+        document.getElementById('plan-machine').textContent = plan.machine_name;
+        document.getElementById('plan-date').textContent = plan.date;
+        document.getElementById('plan-time').textContent = plan.start_time + ' - ' + plan.end_time;
+        document.getElementById('plan-quantity').textContent = plan.planned_quantity;
+        document.getElementById('plan-pph').textContent = plan.target_pph;
+        document.getElementById('plan-info').style.display = 'block';
+        
+        // サマリー更新
+        updateSummary(plan);
+    }
+    
+    // 計算結果更新
+    function updateCalculations() {
+        if (!currentPlan || !actualQuantityInput.value) {
+            document.getElementById('achievement-preview').textContent = '--%';
+            document.getElementById('calculation-result').style.display = 'none';
+            return;
+        }
+        
+        const actualQuantity = parseInt(actualQuantityInput.value);
+        const plannedQuantity = currentPlan.planned_quantity;
+        const targetPph = currentPlan.target_pph;
+        const durationMinutes = currentPlan.duration_minutes;
+        const totalDowntime = calculateTotalDowntime();
+        
+        // 達成率
+        const achievementRate = (actualQuantity / plannedQuantity * 100).toFixed(1);
+        
+        // 実際PPH
+        const effectiveMinutes = durationMinutes - totalDowntime;
+        const actualPph = effectiveMinutes > 0 ? (actualQuantity / effectiveMinutes * 60).toFixed(1) : 0;
+        
+        // 効率
+        const efficiency = targetPph > 0 ? (actualPph / targetPph * 100).toFixed(1) : 0;
+        
+        // 差異
+        const variance = actualQuantity - plannedQuantity;
+        
+        // 評価
+        let evaluation = '普通';
+        if (achievementRate >= 100) evaluation = '優秀';
+        else if (achievementRate >= 90) evaluation = '良好';
+        else if (achievementRate < 70) evaluation = '要改善';
+        
+        // 表示更新
+        const achievementPreview = document.getElementById('achievement-preview');
+        achievementPreview.textContent = achievementRate + '%';
+        achievementPreview.className = 'achievement-preview ' + 
+            (achievementRate >= 100 ? 'bg-success text-white' :
+             achievementRate >= 80 ? 'bg-warning text-dark' : 'bg-danger text-white');
+        
+        document.getElementById('actual-pph').textContent = actualPph;
+        document.getElementById('efficiency').textContent = efficiency + '%';
+        document.getElementById('variance').textContent = (variance >= 0 ? '+' : '') + variance;
+        document.getElementById('evaluation').textContent = evaluation;
+        document.getElementById('calculation-result').style.display = 'block';
+    }
+    
+    // サマリー更新
+    function updateSummary(plan) {
+        const summaryContent = document.getElementById('summary-content');
+        summaryContent.innerHTML = `
+            <div class="text-center">
+                <h6>${plan.part_name}</h6>
+                <p class="mb-1">計画: ${plan.planned_quantity}個</p>
+                <p class="mb-1">目標PPH: ${plan.target_pph}</p>
+                <p class="mb-0 text-muted">${plan.date}</p>
+            </div>
+        `;
+    }
+    
+    // 停止時間追加
+    addDowntimeBtn.addEventListener('click', function() {
+        downtimeCounter++;
+        const template = downtimeTemplate.content.cloneNode(true);
+        template.querySelector('.downtime-number').textContent = downtimeCounter;
+        
+        const downtimeEntry = template.querySelector('.downtime-entry');
+        downtimeEntry.dataset.index = downtimeCounter;
+        
+        // イベントリスナー追加
+        const startInput = template.querySelector('.downtime-start');
+        const endInput = template.querySelector('.downtime-end');
+        const durationInput = template.querySelector('.downtime-duration');
+        const removeBtn = template.querySelector('.remove-downtime');
+        
+        startInput.addEventListener('change', () => updateDowntimeDuration(downtimeEntry));
+        endInput.addEventListener('change', () => updateDowntimeDuration(downtimeEntry));
+        removeBtn.addEventListener('click', () => removeDowntime(downtimeEntry));
+        
+        downtimeContainer.appendChild(template);
+        updateTotalDowntime();
+    });
+    
+    // 停止時間削除
+    function removeDowntime(entry) {
+        entry.remove();
+        updateTotalDowntime();
+        updateCalculations();
+    }
+    
+    // 停止時間の時間計算
+    function updateDowntimeDuration(entry) {
+        const startInput = entry.querySelector('.downtime-start');
+        const endInput = entry.querySelector('.downtime-end');
+        const durationInput = entry.querySelector('.downtime-duration');
+        
+        if (startInput.value && endInput.value) {
+            const start = new Date(`2000-01-01T${startInput.value}`);
+            const end = new Date(`2000-01-01T${endInput.value}`);
+            
+            if (end > start) {
+                const minutes = (end - start) / (1000 * 60);
+                durationInput.value = minutes;
+            } else {
+                durationInput.value = '';
+            }
+        } else {
+            durationInput.value = '';
+        }
+        
+        updateTotalDowntime();
+        updateCalculations();
+    }
+    
+    // 総停止時間計算
+    function calculateTotalDowntime() {
+        let total = 0;
+        document.querySelectorAll('.downtime-duration').forEach(input => {
+            if (input.value) {
+                total += parseInt(input.value);
+            }
+        });
+        return total;
+    }
+    
+    // 総停止時間表示更新
+    function updateTotalDowntime() {
+        const total = calculateTotalDowntime();
+        document.getElementById('total-downtime').textContent = total;
+    }
+    
+    // 初期化
+    if (planSelect && planSelect.value) {
+        planSelect.dispatchEvent(new Event('change'));
+    }
+    
+    // 編集時の初期化
+    {% if form.instance.pk %}
+    currentPlan = {
+        part_name: '{{ form.instance.plan.part.name }}',
+        machine_name: '{{ form.instance.plan.machine.name }}',
+        date: '{{ form.instance.plan.date|date:"Y年n月j日" }}',
+        start_time: '{{ form.instance.plan.start_time|time:"H:i" }}',
+        end_time: '{{ form.instance.plan.end_time|time:"H:i" }}',
+        planned_quantity: {{ form.instance.plan.planned_quantity }},
+        target_pph: {{ form.instance.plan.part.target_pph|default:0 }},
+        duration_minutes: {{ form.instance.plan.duration_minutes }}
+    };
+    updateSummary(currentPlan);
+    updateCalculations();
+    {% endif %}
+});
+</script>
+{% endblock %} 

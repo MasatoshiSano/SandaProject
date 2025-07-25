@@ -1,0 +1,550 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}
+{% if form.instance.pk %}計画編集{% else %}計画作成{% endif %} - {{ line.name }}
+{% endblock %}
+
+{% block extra_css %}
+<style>
+.form-section {
+    background: var(--bs-light);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+    border-left: 4px solid var(--bs-primary);
+}
+
+.time-input-group {
+    position: relative;
+}
+
+.time-input-group .form-control {
+    padding-right: 2.5rem;
+}
+
+.time-input-group .input-group-text {
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    z-index: 10;
+    border-left: none;
+    background: transparent;
+}
+
+.part-info {
+    background: var(--bs-info-bg-subtle);
+    border: 1px solid var(--bs-info-border-subtle);
+    border-radius: 6px;
+    padding: 1rem;
+    margin-top: 0.5rem;
+}
+
+.calculation-display {
+    background: var(--bs-success-bg-subtle);
+    border: 1px solid var(--bs-success-border-subtle);
+    border-radius: 6px;
+    padding: 1rem;
+    margin-top: 1rem;
+}
+
+.required-field {
+    color: var(--bs-danger);
+}
+
+@media (max-width: 768px) {
+    .form-section {
+        padding: 1rem;
+    }
+    
+    .d-flex.gap-3 {
+        flex-direction: column;
+        gap: 0.5rem !important;
+    }
+    
+    #dateSelector {
+        width: 100% !important;
+    }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <!-- ヘッダー -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <h2 class="mb-1">
+                        <i class="bi bi-{% if form.instance.pk %}pencil{% else %}plus-circle{% endif %} me-2"></i>
+                        {% if form.instance.pk %}計画編集{% else %}計画作成{% endif %}
+                    </h2>
+                    <p class="text-muted mb-0">
+                        {{ line.name }}
+                    </p>
+                </div>
+                <div>
+                    <a href="{% url 'production:plan_list' line.id date_str %}" class="btn btn-outline-secondary">
+                        <i class="bi bi-arrow-left me-2"></i>一覧に戻る
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 日付選択 -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div class="d-flex align-items-center gap-3">
+                            <button type="button" id="prevDay" class="btn btn-outline-primary btn-sm">
+                                <i class="bi bi-chevron-left"></i>前日
+                            </button>
+                            <div class="d-flex align-items-center gap-2">
+                                <i class="bi bi-calendar3 text-primary"></i>
+                                <input type="date" id="dateSelector" class="form-control" value="{{ date_str }}" style="width: 160px;">
+                            </div>
+                            <button type="button" id="nextDay" class="btn btn-outline-primary btn-sm">
+                                翌日<i class="bi bi-chevron-right"></i>
+                            </button>
+                            <button type="button" id="todayBtn" class="btn btn-primary btn-sm">
+                                <i class="bi bi-calendar-check me-1"></i>今日
+                            </button>
+                        </div>
+                        <div class="text-end">
+                            <h5 class="mb-0 text-primary">{{ form.date.value|date:"Y年n月j日 (D)" }}</h5>
+                            <small class="text-muted">作成日付</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <form method="post" id="planForm">
+        {% csrf_token %}
+        
+        <!-- 隠しフィールド -->
+        {{ form.date }}
+        {{ form.line }}
+        {{ form.sequence }}
+        
+        <!-- エラー表示 -->
+        {% if form.non_field_errors %}
+        <div class="alert alert-danger">
+            {{ form.non_field_errors }}
+        </div>
+        {% endif %}
+        
+        <!-- フィールドエラー表示 -->
+        {% if form.date.errors %}
+        <div class="alert alert-danger">
+            <strong>日付:</strong> {{ form.date.errors }}
+        </div>
+        {% endif %}
+        {% if form.line.errors %}
+        <div class="alert alert-danger">
+            <strong>ライン:</strong> {{ form.line.errors }}
+        </div>
+        {% endif %}
+        {% if form.sequence.errors %}
+        <div class="alert alert-danger">
+            <strong>順番:</strong> {{ form.sequence.errors }}
+        </div>
+        {% endif %}
+
+        <div class="row">
+            <div class="col-lg-8">
+                <!-- 基本情報 -->
+                <div class="form-section">
+                    <h4 class="mb-3">
+                        <i class="bi bi-info-circle me-2"></i>基本情報
+                    </h4>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="{{ form.part.id_for_label }}" class="form-label">
+                                機種 <span class="required-field">*</span>
+                            </label>
+                            {{ form.part }}
+                            {% if form.part.errors %}
+                            <div class="text-danger small mt-1">{{ form.part.errors }}</div>
+                            {% endif %}
+                            
+                            <!-- 機種情報表示 -->
+                            <div id="part-info" class="part-info" style="display: none;">
+                                <div class="row">
+                                    <div class="col-6">
+                                        <strong>目標PPH:</strong> <span id="target-pph">-</span>
+                                    </div>
+                                    <div class="col-6">
+                                        <strong>サイクルタイム:</strong> <span id="cycle-time">-</span>秒
+                                    </div>
+                                </div>
+                                <div class="row mt-2">
+                                    <div class="col-6">
+                                        <strong>カテゴリ:</strong> <span id="category">-</span>
+                                    </div>
+                                    <div class="col-6">
+                                        <strong>タグ:</strong> <span id="tags">-</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-6 mb-3">
+                            <label for="{{ form.machine.id_for_label }}" class="form-label">
+                                機械 <span class="required-field">*</span>
+                            </label>
+                            {{ form.machine }}
+                            {% if form.machine.errors %}
+                            <div class="text-danger small mt-1">{{ form.machine.errors }}</div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 時間設定 -->
+                <div class="form-section">
+                    <h4 class="mb-3">
+                        <i class="bi bi-clock me-2"></i>時間設定
+                    </h4>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="{{ form.start_time.id_for_label }}" class="form-label">
+                                開始時間 <span class="required-field">*</span>
+                            </label>
+                            <div class="time-input-group">
+                                {{ form.start_time }}
+                                <span class="input-group-text">
+                                    <i class="bi bi-clock"></i>
+                                </span>
+                            </div>
+                            {% if form.start_time.errors %}
+                            <div class="text-danger small mt-1">{{ form.start_time.errors }}</div>
+                            {% endif %}
+                        </div>
+                        
+                        <div class="col-md-6 mb-3">
+                            <label for="{{ form.end_time.id_for_label }}" class="form-label">
+                                終了時間 <span class="required-field">*</span>
+                            </label>
+                            <div class="time-input-group">
+                                {{ form.end_time }}
+                                <span class="input-group-text">
+                                    <i class="bi bi-clock"></i>
+                                </span>
+                            </div>
+                            {% if form.end_time.errors %}
+                            <div class="text-danger small mt-1">{{ form.end_time.errors }}</div>
+                            {% endif %}
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-12">
+                            <div class="alert alert-info">
+                                <i class="bi bi-info-circle me-2"></i>
+                                <strong>作業時間:</strong> <span id="duration-display">-</span>分
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 数量設定 -->
+                <div class="form-section">
+                    <h4 class="mb-3">
+                        <i class="bi bi-123 me-2"></i>数量設定
+                    </h4>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="{{ form.planned_quantity.id_for_label }}" class="form-label">
+                                計画数量 <span class="required-field">*</span>
+                            </label>
+                            {{ form.planned_quantity }}
+                            {% if form.planned_quantity.errors %}
+                            <div class="text-danger small mt-1">{{ form.planned_quantity.errors }}</div>
+                            {% endif %}
+                        </div>
+                        
+                        <div class="col-md-6 mb-3">
+                            <button type="button" id="calculate-btn" class="btn btn-outline-primary mt-4">
+                                <i class="bi bi-calculator me-2"></i>自動計算
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <!-- 計算結果表示 -->
+                    <div id="calculation-result" class="calculation-display" style="display: none;">
+                        <div class="row">
+                            <div class="col-md-4">
+                                <strong>推奨数量:</strong> <span id="recommended-qty">-</span>個
+                            </div>
+                            <div class="col-md-4">
+                                <strong>予想PPH:</strong> <span id="expected-pph">-</span>
+                            </div>
+                            <div class="col-md-4">
+                                <strong>効率:</strong> <span id="efficiency">-</span>%
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 備考 -->
+                <div class="form-section">
+                    <h4 class="mb-3">
+                        <i class="bi bi-chat-text me-2"></i>備考
+                    </h4>
+                    
+                    <div class="mb-3">
+                        <label for="{{ form.notes.id_for_label }}" class="form-label">備考</label>
+                        {{ form.notes }}
+                        {% if form.notes.errors %}
+                        <div class="text-danger small mt-1">{{ form.notes.errors }}</div>
+                        {% endif %}
+                        <div class="form-text">特記事項や注意点があれば記入してください。</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- サイドバー -->
+            <div class="col-lg-4">
+                <!-- 保存ボタン -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <i class="bi bi-floppy me-2"></i>保存
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <button type="submit" class="btn btn-success w-100 mb-2">
+                            <i class="bi bi-check-circle me-2"></i>
+                            {% if form.instance.pk %}更新{% else %}作成{% endif %}
+                        </button>
+                        <a href="{% url 'production:plan_list' line.id date_str %}" class="btn btn-outline-secondary w-100">
+                            <i class="bi bi-x-circle me-2"></i>キャンセル
+                        </a>
+                    </div>
+                </div>
+
+                <!-- ヘルプ -->
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <i class="bi bi-question-circle me-2"></i>ヘルプ
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <ul class="list-unstyled mb-0">
+                            <li class="mb-2">
+                                <i class="bi bi-lightbulb text-warning me-2"></i>
+                                <strong>自動計算:</strong> 機種の目標PPHと作業時間から推奨数量を計算します。
+                            </li>
+                            <li class="mb-2">
+                                <i class="bi bi-clock text-info me-2"></i>
+                                <strong>時間重複:</strong> 同じ機械で時間が重複する計画は作成できません。
+                            </li>
+                            <li class="mb-2">
+                                <i class="bi bi-gear text-secondary me-2"></i>
+                                <strong>機械選択:</strong> 選択したラインで利用可能な機械のみ表示されます。
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const dateSelector = document.getElementById('dateSelector');
+    const prevDayBtn = document.getElementById('prevDay');
+    const nextDayBtn = document.getElementById('nextDay');
+    const todayBtn = document.getElementById('todayBtn');
+    const lineId = {{ line.id }};
+    
+    const partSelect = document.getElementById('{{ form.part.id_for_label }}');
+    const startTimeInput = document.getElementById('{{ form.start_time.id_for_label }}');
+    const endTimeInput = document.getElementById('{{ form.end_time.id_for_label }}');
+    const plannedQuantityInput = document.getElementById('{{ form.planned_quantity.id_for_label }}');
+    const calculateBtn = document.getElementById('calculate-btn');
+    
+    // 日付変更時の処理
+    function changeDate(newDate) {
+        const url = `/production/plan/${lineId}/${newDate}/create/`;
+        window.location.href = url;
+    }
+    
+    // 日付入力の変更
+    dateSelector.addEventListener('change', function() {
+        if (this.value) {
+            changeDate(this.value);
+        }
+    });
+    
+    // 前日ボタン
+    prevDayBtn.addEventListener('click', function() {
+        const currentDate = new Date(dateSelector.value);
+        currentDate.setDate(currentDate.getDate() - 1);
+        const newDate = currentDate.toISOString().split('T')[0];
+        changeDate(newDate);
+    });
+    
+    // 翌日ボタン  
+    nextDayBtn.addEventListener('click', function() {
+        const currentDate = new Date(dateSelector.value);
+        currentDate.setDate(currentDate.getDate() + 1);
+        const newDate = currentDate.toISOString().split('T')[0];
+        changeDate(newDate);
+    });
+    
+    // 今日ボタン
+    todayBtn.addEventListener('click', function() {
+        const today = new Date().toISOString().split('T')[0];
+        changeDate(today);
+    });
+    
+    // キーボードショートカット
+    document.addEventListener('keydown', function(e) {
+        if (e.altKey) {
+            switch(e.key) {
+                case 'ArrowLeft':
+                    e.preventDefault();
+                    prevDayBtn.click();
+                    break;
+                case 'ArrowRight':
+                    e.preventDefault();
+                    nextDayBtn.click();
+                    break;
+                case 'h':
+                    e.preventDefault();
+                    todayBtn.click();
+                    break;
+            }
+        }
+    });
+    
+    // 機種選択時の処理
+    partSelect.addEventListener('change', function() {
+        const partId = this.value;
+        if (partId) {
+            fetch(`/production/api/part-info/${partId}/`)
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('target-pph').textContent = data.target_pph || '-';
+                    document.getElementById('cycle-time').textContent = data.cycle_time || '-';
+                    document.getElementById('category').textContent = data.category || '-';
+                    document.getElementById('tags').textContent = data.tags ? data.tags.join(', ') : '-';
+                    document.getElementById('part-info').style.display = 'block';
+                })
+                .catch(error => {
+                    console.error('Error fetching part info:', error);
+                    document.getElementById('part-info').style.display = 'none';
+                });
+        } else {
+            document.getElementById('part-info').style.display = 'none';
+        }
+    });
+    
+    // 時間変更時の処理
+    function updateDuration() {
+        const startTime = startTimeInput.value;
+        const endTime = endTimeInput.value;
+        
+        if (startTime && endTime) {
+            const start = new Date(`2000-01-01T${startTime}`);
+            const end = new Date(`2000-01-01T${endTime}`);
+            
+            if (end > start) {
+                const diffMinutes = (end - start) / (1000 * 60);
+                document.getElementById('duration-display').textContent = diffMinutes;
+            } else {
+                document.getElementById('duration-display').textContent = '-';
+            }
+        } else {
+            document.getElementById('duration-display').textContent = '-';
+        }
+    }
+    
+    startTimeInput.addEventListener('change', updateDuration);
+    endTimeInput.addEventListener('change', updateDuration);
+    
+    // 自動計算ボタン
+    calculateBtn.addEventListener('click', function() {
+        const partId = partSelect.value;
+        const startTime = startTimeInput.value;
+        const endTime = endTimeInput.value;
+        
+        if (!partId || !startTime || !endTime) {
+            alert('機種、開始時間、終了時間を入力してください。');
+            return;
+        }
+        
+        const start = new Date(`2000-01-01T${startTime}`);
+        const end = new Date(`2000-01-01T${endTime}`);
+        
+        if (end <= start) {
+            alert('終了時間は開始時間より後に設定してください。');
+            return;
+        }
+        
+        const durationMinutes = (end - start) / (1000 * 60);
+        
+        fetch(`/production/api/part-info/${partId}/`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.target_pph) {
+                    const recommendedQty = Math.floor((data.target_pph * durationMinutes) / 60);
+                    const expectedPph = data.target_pph;
+                    const efficiency = 100;
+                    
+                    document.getElementById('recommended-qty').textContent = recommendedQty;
+                    document.getElementById('expected-pph').textContent = expectedPph;
+                    document.getElementById('efficiency').textContent = efficiency;
+                    document.getElementById('calculation-result').style.display = 'block';
+                    
+                    plannedQuantityInput.value = recommendedQty;
+                } else {
+                    alert('選択した機種の目標PPHが設定されていません。');
+                }
+            })
+            .catch(error => {
+                console.error('Error calculating quantity:', error);
+                alert('計算中にエラーが発生しました。');
+            });
+    });
+    
+    // 初期表示時の処理
+    if (partSelect.value) {
+        partSelect.dispatchEvent(new Event('change'));
+    }
+    updateDuration();
+    
+    // フォーム送信前の確認
+    document.getElementById('planForm').addEventListener('submit', function(e) {
+        const startTime = startTimeInput.value;
+        const endTime = endTimeInput.value;
+        
+        if (startTime && endTime) {
+            const start = new Date(`2000-01-01T${startTime}`);
+            const end = new Date(`2000-01-01T${endTime}`);
+            
+            if (end <= start) {
+                e.preventDefault();
+                alert('終了時間は開始時間より後に設定してください。');
+                return false;
+            }
+        }
+    });
+});
+</script>
+{% endblock %} 

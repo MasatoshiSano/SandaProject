@@ -1,0 +1,476 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}フィードバック一覧{% endblock %}
+
+{% block breadcrumb %}
+<li class="breadcrumb-item">
+    <a href="{% url 'production:line_select' %}" class="text-decoration-none">
+        <i class="bi bi-list-check me-1"></i>ライン選択
+    </a>
+</li>
+<li class="breadcrumb-item active" aria-current="page">
+    <i class="bi bi-chat-dots me-1"></i>フィードバック一覧
+</li>
+{% endblock %}
+
+{% block extra_css %}
+<link href="https://cdn.datatables.net/1.11.5/css/dataTables.bootstrap5.min.css" rel="stylesheet">
+<style>
+    .priority-high {
+        color: #dc3545;
+        font-weight: bold;
+    }
+    .priority-medium {
+        color: #ffc107;
+        font-weight: bold;
+    }
+    .priority-low {
+        color: #0dcaf0;
+    }
+    .attachment-icon {
+        font-size: 1.2rem;
+        color: var(--bs-primary);
+    }
+    .status-new { background-color: #0d6efd; color: white; }
+    .status-in_review { background-color: #0dcaf0; color: white; }
+    .status-in_progress { background-color: #ffc107; color: black; }
+    .status-completed { background-color: #198754; color: white; }
+    .status-rejected { background-color: #6c757d; color: white; }
+    .action-buttons .btn {
+        margin-right: 0.25rem;
+    }
+    .action-buttons .btn:last-child {
+        margin-right: 0;
+    }
+    /* DataTablesのフィルター用スタイル */
+    .dataTables_wrapper .table thead th select {
+        width: auto;
+        display: block;
+        margin-top: 0.5rem;
+    }
+    /* モーダル関連のスタイル */
+    .modal {
+        background: rgba(0, 0, 0, 0.5);
+    }
+    .modal-backdrop {
+        display: none;
+    }
+    .modal.show {
+        display: block;
+    }
+    /* フィードバックボタンと同じ色 */
+    .btn-feedback {
+        background-color: #0d6efd;
+        border-color: #0d6efd;
+        color: white;
+    }
+    .btn-feedback:hover {
+        background-color: #0b5ed7;
+        border-color: #0a58ca;
+        color: white;
+    }
+    /* テーブルの列幅調整 */
+    #feedback-table th:nth-child(1) { width: 10%; } /* カテゴリ */
+    #feedback-table th:nth-child(2) { width: 8%; }  /* 優先度 */
+    #feedback-table th:nth-child(3) { width: 8%; }  /* ステータス */
+    #feedback-table th:nth-child(4) { width: 35%; } /* 説明 */
+    #feedback-table th:nth-child(5) { width: 10%; } /* 送信者 */
+    #feedback-table th:nth-child(6) { width: 12%; } /* 送信日時 */
+    #feedback-table th:nth-child(7) { width: 5%; }  /* 添付 */
+    #feedback-table th:nth-child(8) { width: 5%; }  /* URL */
+    #feedback-table th:nth-child(9) { width: 7%; }  /* 操作 */
+    /* フィルターのスタイル */
+    .filter-section {
+        background: var(--bs-light);
+        border-radius: 8px;
+        padding: 1.5rem;
+        margin-bottom: 1.5rem;
+        border-left: 4px solid var(--bs-primary);
+    }
+    .filter-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1rem;
+        align-items: flex-end;
+    }
+    .filter-item {
+        flex: 1;
+        min-width: 200px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <!-- ヘッダー -->
+    <div class="row mb-4">
+        <div class="col-md-8">
+            <h2 class="mb-1">
+                <i class="bi bi-chat-dots me-2 text-primary"></i>フィードバック一覧
+            </h2>
+            <p class="text-muted mb-0">システムに関するフィードバックの管理</p>
+        </div>
+        <div class="col-md-4 text-end">
+            <a href="{% url 'production:line_select' %}" class="btn btn-outline-secondary me-2">
+                <i class="bi bi-arrow-left me-1"></i>ライン選択
+            </a>
+            <a href="{% url 'production:dashboard' line.id date_str %}" class="btn btn-outline-primary">
+                <i class="bi bi-speedometer2 me-1"></i>ダッシュボード
+            </a>
+        </div>
+    </div>
+
+    <!-- フィルターセクション -->
+    <div class="filter-section mb-4">
+        <h5 class="mb-3">
+            <i class="bi bi-funnel me-2"></i>フィルター
+        </h5>
+        <div class="filter-row">
+            <div class="filter-item">
+                <label class="form-label">カテゴリ</label>
+                <select class="form-select" id="category-filter">
+                    <option value="">全て</option>
+                    <option value="bug">バグ報告</option>
+                    <option value="feature">機能改善</option>
+                    <option value="other">その他</option>
+                </select>
+            </div>
+            <div class="filter-item">
+                <label class="form-label">優先度</label>
+                <select class="form-select" id="priority-filter">
+                    <option value="">全て</option>
+                    <option value="high">高</option>
+                    <option value="medium">中</option>
+                    <option value="low">低</option>
+                </select>
+            </div>
+            <div class="filter-item">
+                <label class="form-label">ステータス</label>
+                <select class="form-select" id="status-filter">
+                    <option value="">全て</option>
+                    <option value="new">新規</option>
+                    <option value="in_review">レビュー中</option>
+                    <option value="in_progress">対応中</option>
+                    <option value="completed">完了</option>
+                    <option value="rejected">却下</option>
+                </select>
+            </div>
+            <div class="filter-item d-flex align-items-end gap-2">
+                <button type="button" class="btn btn-primary" id="apply-filters">
+                    <i class="bi bi-search me-2"></i>フィルター適用
+                </button>
+                <button type="button" class="btn btn-outline-secondary" id="reset-filters">
+                    <i class="bi bi-x-circle me-2"></i>リセット
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <div class="card">
+        <div class="card-body">
+            <div class="table-responsive">
+                <table id="feedback-table" class="table table-striped">
+                    <thead>
+                        <tr>
+                            <th>カテゴリ</th>
+                            <th>優先度</th>
+                            <th>ステータス</th>
+                            <th>説明</th>
+                            <th>送信者</th>
+                            <th>送信日時</th>
+                            <th>添付</th>
+                            <th>URL</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for feedback in feedbacks %}
+                        <tr>
+                            <td>{{ feedback.get_category_display }}</td>
+                            <td class="priority-{{ feedback.priority }}">{{ feedback.get_priority_display }}</td>
+                            <td><span class="badge status-{{ feedback.status }}">{{ feedback.get_status_display }}</span></td>
+                            <td>{{ feedback.description|truncatechars:50 }}</td>
+                            <td>{{ feedback.user.username }}</td>
+                            <td>{{ feedback.created_at|date:"Y/m/d H:i" }}</td>
+                            <td class="text-center">
+                                {% if feedback.attachment %}
+                                <a href="{{ feedback.attachment.url }}" target="_blank" class="text-decoration-none">
+                                    <i class="bi bi-paperclip attachment-icon"></i>
+                                </a>
+                                {% endif %}
+                            </td>
+                            <td class="text-center">
+                                {% if feedback.page_url %}
+                                <a href="{{ feedback.page_url }}" target="_blank" class="text-decoration-none">
+                                    <i class="bi bi-link-45deg attachment-icon"></i>
+                                </a>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <div class="action-buttons">
+                                    <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#viewModal{{ feedback.id }}">
+                                        <i class="bi bi-eye"></i>
+                                    </button>
+                                    {% if user.is_staff or user == feedback.user %}
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#editModal{{ feedback.id }}">
+                                        <i class="bi bi-pencil"></i>
+                                    </button>
+                                    {% endif %}
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% for feedback in feedbacks %}
+<!-- 詳細モーダル -->
+<div class="modal fade" id="viewModal{{ feedback.id }}" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">フィードバックの詳細</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <dl class="row">
+                    <dt class="col-sm-3">カテゴリ</dt>
+                    <dd class="col-sm-9">{{ feedback.get_category_display }}</dd>
+                    
+                    <dt class="col-sm-3">優先度</dt>
+                    <dd class="col-sm-9" class="priority-{{ feedback.priority }}">{{ feedback.get_priority_display }}</dd>
+                    
+                    <dt class="col-sm-3">ステータス</dt>
+                    <dd class="col-sm-9">
+                        <span class="badge status-{{ feedback.status }}">{{ feedback.get_status_display }}</span>
+                    </dd>
+                    
+                    <dt class="col-sm-3">説明</dt>
+                    <dd class="col-sm-9">{{ feedback.description|linebreaks }}</dd>
+                    
+                    <dt class="col-sm-3">送信者</dt>
+                    <dd class="col-sm-9">{{ feedback.user.username }}</dd>
+                    
+                    <dt class="col-sm-3">送信日時</dt>
+                    <dd class="col-sm-9">{{ feedback.created_at|date:"Y/m/d H:i" }}</dd>
+                    
+                    {% if feedback.attachment %}
+                    <dt class="col-sm-3">添付ファイル</dt>
+                    <dd class="col-sm-9">
+                        <a href="{{ feedback.attachment.url }}" target="_blank">
+                            <i class="bi bi-paperclip me-1"></i>添付ファイルを開く
+                        </a>
+                    </dd>
+                    {% endif %}
+                    
+                    {% if feedback.page_url %}
+                    <dt class="col-sm-3">ページURL</dt>
+                    <dd class="col-sm-9">
+                        <a href="{{ feedback.page_url }}" target="_blank">
+                            <i class="bi bi-link-45deg me-1"></i>{{ feedback.page_url }}
+                        </a>
+                    </dd>
+                    {% endif %}
+                </dl>
+            </div>
+            <div class="modal-footer">
+                {% if user.is_staff or user == feedback.user %}
+                <button type="button" class="btn btn-feedback edit-from-view" data-feedback-id="{{ feedback.id }}" data-bs-toggle="modal" data-bs-target="#editModal{{ feedback.id }}">
+                    編集
+                </button>
+                {% endif %}
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">閉じる</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 編集モーダル -->
+<div class="modal fade" id="editModal{{ feedback.id }}" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">フィードバックの編集</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="editForm{{ feedback.id }}" action="{% url 'production:feedback_edit' feedback.id %}" method="post">
+                <div class="modal-body">
+                    {% csrf_token %}
+                    <input type="hidden" name="redirect_url" value="{% url 'production:feedback_list' %}">
+                    <div class="mb-3">
+                        <label class="form-label">カテゴリ</label>
+                        <select name="category" class="form-select" required>
+                            <option value="bug" {% if feedback.category == 'bug' %}selected{% endif %}>バグ報告</option>
+                            <option value="feature" {% if feedback.category == 'feature' %}selected{% endif %}>機能改善</option>
+                            <option value="other" {% if feedback.category == 'other' %}selected{% endif %}>その他</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">優先度</label>
+                        <select name="priority" class="form-select" required>
+                            <option value="high" {% if feedback.priority == 'high' %}selected{% endif %}>高</option>
+                            <option value="medium" {% if feedback.priority == 'medium' %}selected{% endif %}>中</option>
+                            <option value="low" {% if feedback.priority == 'low' %}selected{% endif %}>低</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">ステータス</label>
+                        <select name="status" class="form-select" required>
+                            <option value="new" {% if feedback.status == 'new' %}selected{% endif %}>新規</option>
+                            <option value="in_review" {% if feedback.status == 'in_review' %}selected{% endif %}>レビュー中</option>
+                            <option value="in_progress" {% if feedback.status == 'in_progress' %}selected{% endif %}>対応中</option>
+                            <option value="completed" {% if feedback.status == 'completed' %}selected{% endif %}>完了</option>
+                            <option value="rejected" {% if feedback.status == 'rejected' %}selected{% endif %}>却下</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">説明</label>
+                        <textarea name="description" class="form-control" rows="5" required>{{ feedback.description }}</textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">キャンセル</button>
+                    <button type="submit" class="btn btn-feedback">保存</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endfor %}
+{% endblock %}
+
+{% block extra_js %}
+<!-- jQuery（もしbase.htmlで読み込まれていない場合のフォールバック） -->
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://cdn.datatables.net/1.11.5/js/jquery.dataTables.min.js"></script>
+<script src="https://cdn.datatables.net/1.11.5/js/dataTables.bootstrap5.min.js"></script>
+<script>
+    // jQueryが読み込まれているか確認
+    if (typeof jQuery === 'undefined') {
+        console.error('jQuery is not loaded!');
+    } else {
+        console.log('jQuery version:', jQuery.fn.jquery);
+    }
+
+    // DOMの準備ができたら実行
+    document.addEventListener('DOMContentLoaded', function() {
+        console.log('DOM loaded');
+        
+        // DataTablesの初期化
+        let dataTable = $('#feedback-table').DataTable({
+            order: [[5, 'desc']], // 送信日時で降順ソート
+            language: {
+                url: "https://cdn.datatables.net/plug-ins/1.11.5/i18n/ja.json"
+            },
+            columnDefs: [
+                { orderable: false, targets: [6, 7, 8] }, // 添付、URL、操作はソート無効
+                { searchable: false, targets: [6, 7, 8] } // 添付、URL、操作は検索対象外
+            ],
+            pageLength: 25,
+            lengthMenu: [[10, 25, 50, -1], [10, 25, 50, "全て"]],
+            dom: "<'row'<'col-sm-12 col-md-6'l><'col-sm-12 col-md-6'f>>" +
+                 "<'row'<'col-sm-12'tr>>" +
+                 "<'row'<'col-sm-12 col-md-5'i><'col-sm-12 col-md-7'p>>"
+        });
+
+        // フィルター適用関数
+        function applyFilters() {
+            console.log('Applying filters');
+            
+            const categoryFilter = document.getElementById('category-filter').value;
+            const priorityFilter = document.getElementById('priority-filter').value;
+            const statusFilter = document.getElementById('status-filter').value;
+
+            console.log('Filter values:', {
+                category: categoryFilter,
+                priority: priorityFilter,
+                status: statusFilter
+            });
+
+            // カスタムフィルター関数
+            $.fn.dataTable.ext.search.pop(); // 既存のフィルターを削除
+            $.fn.dataTable.ext.search.push(function(settings, data, dataIndex) {
+                const rowCategory = data[0];  // カテゴリ列
+                const rowPriority = data[1];  // 優先度列
+                const rowStatus = data[2];    // ステータス列
+
+                // フィルター条件のマッピング
+                const categoryMap = {
+                    'bug': 'バグ報告',
+                    'feature': '機能改善',
+                    'other': 'その他'
+                };
+                const priorityMap = {
+                    'high': '高',
+                    'medium': '中',
+                    'low': '低'
+                };
+                const statusMap = {
+                    'new': '新規',
+                    'in_review': 'レビュー中',
+                    'in_progress': '対応中',
+                    'completed': '完了',
+                    'rejected': '却下'
+                };
+
+                // フィルター条件の確認
+                let matchCategory = !categoryFilter || rowCategory.trim() === categoryMap[categoryFilter];
+                let matchPriority = !priorityFilter || rowPriority.trim() === priorityMap[priorityFilter];
+                let matchStatus = !statusFilter || rowStatus.includes(statusMap[statusFilter]);
+
+                console.log('Row check:', {
+                    rowData: { rowCategory, rowPriority, rowStatus },
+                    matches: { matchCategory, matchPriority, matchStatus }
+                });
+
+                return matchCategory && matchPriority && matchStatus;
+            });
+
+            // フィルターを適用
+            dataTable.draw();
+        }
+
+        // フィルター適用ボタンのイベントリスナー
+        document.getElementById('apply-filters').addEventListener('click', function(e) {
+            console.log('Filter button clicked');
+            e.preventDefault();
+            applyFilters();
+        });
+
+        // リセットボタンのイベントリスナー
+        document.getElementById('reset-filters').addEventListener('click', function(e) {
+            console.log('Reset button clicked');
+            e.preventDefault();
+            
+            // フィルターをリセット
+            document.getElementById('category-filter').value = '';
+            document.getElementById('priority-filter').value = '';
+            document.getElementById('status-filter').value = '';
+            
+            // カスタムフィルターをクリア
+            $.fn.dataTable.ext.search.pop();
+            dataTable.draw();
+        });
+
+        // Enterキーでのフィルター適用
+        const filterSelects = document.querySelectorAll('.filter-section select');
+        filterSelects.forEach(select => {
+            select.addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    console.log('Enter key pressed');
+                    e.preventDefault();
+                    applyFilters();
+                }
+            });
+        });
+
+        // 初期化完了のログ
+        console.log('All event listeners attached');
+    });
+</script>
+{% endblock %} 

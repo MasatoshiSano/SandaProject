@@ -1,0 +1,199 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}計画削除確認 - {{ object.part.name }}{% endblock %}
+
+{% block extra_css %}
+<style>
+.delete-warning {
+    background: linear-gradient(135deg, var(--bs-danger-bg-subtle), var(--bs-warning-bg-subtle));
+    border: 2px solid var(--bs-danger-border-subtle);
+    border-radius: 12px;
+    padding: 2rem;
+}
+
+.plan-details {
+    background: var(--bs-light);
+    border-radius: 8px;
+    padding: 1.5rem;
+    border-left: 4px solid var(--bs-danger);
+}
+
+.danger-icon {
+    font-size: 3rem;
+    color: var(--bs-danger);
+}
+
+.action-buttons .btn {
+    min-width: 120px;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <!-- ヘッダー -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <h2 class="mb-1 text-danger">
+                        <i class="bi bi-exclamation-triangle me-2"></i>計画削除確認
+                    </h2>
+                    <p class="text-muted mb-0">
+                        以下の計画を削除しようとしています
+                    </p>
+                </div>
+                <div>
+                    <a href="{% url 'production:plan_list' object.line.id object.date|date:'Y-m-d' %}" class="btn btn-outline-secondary">
+                        <i class="bi bi-arrow-left me-2"></i>一覧に戻る
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row justify-content-center">
+        <div class="col-lg-8">
+            <!-- 警告メッセージ -->
+            <div class="delete-warning text-center mb-4">
+                <i class="bi bi-exclamation-triangle danger-icon mb-3"></i>
+                <h3 class="text-danger mb-3">本当に削除しますか？</h3>
+                <p class="mb-0">
+                    この操作は取り消すことができません。<br>
+                    関連する実績データも同時に削除される可能性があります。
+                </p>
+            </div>
+
+            <!-- 計画詳細 -->
+            <div class="plan-details mb-4">
+                <h4 class="mb-3">
+                    <i class="bi bi-info-circle me-2"></i>削除対象の計画
+                </h4>
+                
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <strong>機種:</strong><br>
+                        <span class="fs-5">{{ object.part.name }}</span>
+                        {% if object.part.part_number %}
+                        <small class="text-muted d-block">({{ object.part.part_number }})</small>
+                        {% endif %}
+                    </div>
+                    
+                    <div class="col-md-6 mb-3">
+                        <strong>機械:</strong><br>
+                        <span class="fs-5">{{ object.machine.name }}</span>
+                    </div>
+                </div>
+                
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <strong>日付:</strong><br>
+                        <span class="fs-5">{{ object.date|date:"Y年n月j日 (D)" }}</span>
+                    </div>
+                    
+                    <div class="col-md-6 mb-3">
+                        <strong>時間:</strong><br>
+                        <span class="fs-5">{{ object.start_time|time:"H:i" }} - {{ object.end_time|time:"H:i" }}</span>
+                        <small class="text-muted d-block">({{ object.duration_minutes }}分)</small>
+                    </div>
+                </div>
+                
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <strong>計画数量:</strong><br>
+                        <span class="fs-5 text-primary">{{ object.planned_quantity }}個</span>
+                    </div>
+                    
+                    <div class="col-md-6 mb-3">
+                        <strong>実績数量:</strong><br>
+                        {% if object.actual_quantity is not None %}
+                        <span class="fs-5 text-success">{{ object.actual_quantity }}個</span>
+                        <small class="text-muted d-block">
+                            (達成率: {{ object.achievement_rate|floatformat:1 }}%)
+                        </small>
+                        {% else %}
+                        <span class="text-muted">未登録</span>
+                        {% endif %}
+                    </div>
+                </div>
+                
+                {% if object.notes %}
+                <div class="row">
+                    <div class="col-12 mb-3">
+                        <strong>備考:</strong><br>
+                        <div class="bg-white p-2 rounded border">
+                            {{ object.notes|linebreaks }}
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+                
+                <!-- タグ表示 -->
+                {% if object.part.tags.all %}
+                <div class="row">
+                    <div class="col-12">
+                        <strong>タグ:</strong><br>
+                        {% for tag in object.part.tags.all %}
+                        <span class="badge bg-secondary me-1">{{ tag.name }}</span>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+
+            <!-- 影響範囲の警告 -->
+            {% if object.actual_quantity is not None %}
+            <div class="alert alert-warning">
+                <i class="bi bi-exclamation-triangle me-2"></i>
+                <strong>注意:</strong> この計画には実績データが登録されています。
+                計画を削除すると、関連する実績データも削除される可能性があります。
+            </div>
+            {% endif %}
+
+            <!-- 削除フォーム -->
+            <form method="post" class="text-center">
+                {% csrf_token %}
+                <div class="action-buttons">
+                    <button type="submit" class="btn btn-danger btn-lg me-3">
+                        <i class="bi bi-trash me-2"></i>削除する
+                    </button>
+                    <a href="{% url 'production:plan_list' object.line.id object.date|date:'Y-m-d' %}" class="btn btn-secondary btn-lg">
+                        <i class="bi bi-x-circle me-2"></i>キャンセル
+                    </a>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // 削除ボタンの二重クリック防止
+    const deleteForm = document.querySelector('form');
+    const deleteButton = deleteForm.querySelector('button[type="submit"]');
+    
+    deleteForm.addEventListener('submit', function(e) {
+        // 最終確認
+        if (!confirm('本当に削除してもよろしいですか？この操作は取り消せません。')) {
+            e.preventDefault();
+            return false;
+        }
+        
+        // ボタンを無効化して二重送信を防ぐ
+        deleteButton.disabled = true;
+        deleteButton.innerHTML = '<i class="bi bi-hourglass-split me-2"></i>削除中...';
+        
+        // 3秒後にタイムアウト処理
+        setTimeout(function() {
+            if (deleteButton.disabled) {
+                deleteButton.disabled = false;
+                deleteButton.innerHTML = '<i class="bi bi-trash me-2"></i>削除する';
+            }
+        }, 3000);
+    });
+});
+</script>
+{% endblock %} 

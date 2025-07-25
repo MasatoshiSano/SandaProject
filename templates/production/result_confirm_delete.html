@@ -1,0 +1,86 @@
+{% extends 'base.html' %}
+
+{% block title %}実績削除確認 - {{ object.plan.part.name }}{% endblock %}
+
+{% block breadcrumb %}
+<li class="breadcrumb-item">
+    <a href="{% url 'production:result_list' object.plan.line.id %}" class="text-decoration-none">実績一覧</a>
+</li>
+<li class="breadcrumb-item active">削除確認</li>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header bg-danger text-white">
+                    <h4 class="mb-0">
+                        <i class="bi bi-exclamation-triangle me-2"></i>実績削除確認
+                    </h4>
+                </div>
+                <div class="card-body">
+                    <div class="alert alert-warning">
+                        <i class="bi bi-warning me-2"></i>
+                        以下の実績を削除しようとしています。この操作は取り消すことができません。
+                    </div>
+                    
+                    <div class="table-responsive">
+                        <table class="table table-bordered">
+                            <tr>
+                                <th width="150">タイムスタンプ</th>
+                                <td>{{ object.timestamp|date:"Y年n月j日 H:i:s" }}</td>
+                            </tr>
+                            <tr>
+                                <th>計画</th>
+                                <td>{{ object.plan.part.name }} ({{ object.plan.start_time|time:"H:i" }}-{{ object.plan.end_time|time:"H:i" }})</td>
+                            </tr>
+                            <tr>
+                                <th>機種</th>
+                                <td>{{ object.plan.part.name }}</td>
+                            </tr>
+                            <tr>
+                                <th>設備</th>
+                                <td>{{ object.plan.machine.name }}</td>
+                            </tr>
+                            <tr>
+                                <th>数量</th>
+                                <td>{{ object.quantity }}個</td>
+                            </tr>
+                            <tr>
+                                <th>シリアル番号</th>
+                                <td>{{ object.serial_number }}</td>
+                            </tr>
+                            <tr>
+                                <th>判定</th>
+                                <td>
+                                    <span class="badge bg-{% if object.judgment == 'OK' %}success{% else %}danger{% endif %}">
+                                        {{ object.judgment }}
+                                    </span>
+                                </td>
+                            </tr>
+                            {% if object.notes %}
+                            <tr>
+                                <th>備考</th>
+                                <td>{{ object.notes }}</td>
+                            </tr>
+                            {% endif %}
+                        </table>
+                    </div>
+                </div>
+                <div class="card-footer">
+                    <form method="post" class="d-inline">
+                        {% csrf_token %}
+                        <button type="submit" class="btn btn-danger">
+                            <i class="bi bi-trash me-2"></i>削除する
+                        </button>
+                    </form>
+                    <a href="{% url 'production:result_list' object.plan.line.id %}" class="btn btn-secondary">
+                        <i class="bi bi-arrow-left me-2"></i>キャンセル
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %} 

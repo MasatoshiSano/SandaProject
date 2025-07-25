@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="ja" data-bs-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}生産計画・実績見える化アプリ{% endblock %}</title>
+    
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Bootstrap Icons -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    {% load static %}
+    <link rel="stylesheet" href="{% static 'css/custom.css' %}">
+    
+    <style>
+        /* ドロップダウンメニューのスタイル修正 */
+        .dropdown-menu {
+            background-color: #ffffff !important;
+            border: 1px solid rgba(0,0,0,.15) !important;
+            box-shadow: 0 .5rem 1rem rgba(0,0,0,.15) !important;
+            z-index: 9999 !important; /* 透明問題修正 */
+        }
+        
+        .dropdown-item {
+            color: #212529 !important;
+        }
+        
+        .dropdown-item:hover {
+            background-color: #f8f9fa !important;
+            color: #16181b !important;
+        }
+        
+        .dropdown-divider {
+            border-top: 1px solid rgba(0,0,0,.15) !important;
+        }
+    </style>
+    
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary shadow-sm">
+        <div class="container-fluid">
+            <a class="navbar-brand fw-bold" href="{% url 'production:line_select' %}">
+                <i class="bi bi-gear-fill me-2"></i>
+                生産管理システム
+            </a>
+            
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav me-auto">
+                    {% if user.is_authenticated and line %}
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">
+                            <i class="bi bi-list-ul me-1"></i>計画管理
+                        </a>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="#" data-plan-type="list" data-line-id="{{ line.id }}">
+                                <i class="bi bi-calendar-check me-2"></i>計画一覧
+                            </a></li>
+                            <li><a class="dropdown-item" href="#" data-plan-type="create" data-line-id="{{ line.id }}">
+                                <i class="bi bi-plus-circle me-2"></i>計画作成
+                            </a></li>
+                        </ul>
+                    </li>
+                    
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">
+                            <i class="bi bi-graph-up me-1"></i>実績管理
+                        </a>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="{% url 'production:result_list' line.id %}">
+                                <i class="bi bi-table me-2"></i>実績一覧
+                            </a></li>
+                            <li><a class="dropdown-item" href="{% url 'production:result_create' %}">
+                                <i class="bi bi-plus-circle me-2"></i>実績登録
+                            </a></li>
+                        </ul>
+                    </li>
+                    
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">
+                            <i class="bi bi-bar-chart me-1"></i>分析
+                        </a>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="{% url 'production:weekly_graph' line.id %}">
+                                <i class="bi bi-calendar-week me-2"></i>週別グラフ
+                            </a></li>
+                            <li><a class="dropdown-item" href="{% url 'production:monthly_graph' line.id %}">
+                                <i class="bi bi-calendar-month me-2"></i>月別グラフ
+                            </a></li>
+                        </ul>
+                    </li>
+                    
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">
+                            <i class="bi bi-gear me-1"></i>マスタ管理
+                        </a>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="{% url 'production:part_list' %}">
+                                <i class="bi bi-box me-2"></i>機種管理
+                            </a></li>
+                            <li><a class="dropdown-item" href="{% url 'production:part_create' %}">
+                                <i class="bi bi-plus-circle me-2"></i>機種作成
+                            </a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="{% url 'production:category_create' %}">
+                                <i class="bi bi-tag me-2"></i>カテゴリ作成
+                            </a></li>
+                            <li><a class="dropdown-item" href="{% url 'production:tag_create' %}">
+                                <i class="bi bi-tags me-2"></i>タグ作成
+                            </a></li>
+                        </ul>
+                    </li>
+                    {% endif %}
+                </ul>
+                
+                <ul class="navbar-nav">
+                    <!-- Theme Toggle -->
+                    <li class="nav-item">
+                        <button class="btn btn-outline-light btn-sm me-2" id="theme-toggle" title="テーマ切替">
+                            <i class="bi bi-sun-fill" id="theme-icon"></i>
+                        </button>
+                    </li>
+                    
+                    {% if user.is_authenticated %}
+                    {% if user.is_superuser %}
+                    <li class="nav-item">
+                        <a class="nav-link" href="/admin/" target="_blank" title="管理画面">
+                            <i class="bi bi-gear-fill me-1"></i>管理
+                        </a>
+                    </li>
+                    {% endif %}
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">
+                            <i class="bi bi-person-circle me-1"></i>{{ user.username }}
+                            {% if user.is_superuser %}
+                            <span class="badge bg-warning text-dark ms-1">管理者</span>
+                            {% endif %}
+                        </a>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            {% if user.is_superuser %}
+                            <li><a class="dropdown-item" href="/admin/">
+                                <i class="bi bi-gear-fill me-2"></i>Django管理画面
+                            </a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            {% endif %}
+                            <li><a class="dropdown-item" href="{% url 'production:line_select' %}">
+                                <i class="bi bi-arrow-left-right me-2"></i>ライン切替
+                            </a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="{% url 'account_logout' %}">
+                                <i class="bi bi-box-arrow-right me-2"></i>ログアウト
+                            </a></li>
+                        </ul>
+                    </li>
+                    {% else %}
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'account_login' %}">
+                            <i class="bi bi-box-arrow-in-right me-1"></i>ログイン
+                        </a>
+                    </li>
+                    {% endif %}
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Breadcrumb -->
+    {% if user.is_authenticated %}
+    <nav aria-label="breadcrumb" class="bg-light border-bottom">
+        <div class="container-fluid">
+            <ol class="breadcrumb mb-0 py-2">
+                <li class="breadcrumb-item">
+                    <a href="{% url 'production:line_select' %}" class="text-decoration-none">
+                        <i class="bi bi-house me-1"></i>ホーム
+                    </a>
+                </li>
+                {% if line %}
+                <li class="breadcrumb-item">
+                    <span class="badge bg-primary">{{ line.name }}</span>
+                </li>
+                {% endif %}
+                {% if date_str %}
+                <li class="breadcrumb-item">
+                    <span class="badge bg-secondary">{{ date_str }}</span>
+                </li>
+                {% endif %}
+                {% block breadcrumb %}{% endblock %}
+            </ol>
+        </div>
+    </nav>
+    {% endif %}
+
+    <!-- Messages -->
+    {% if messages %}
+    <div class="container-fluid mt-3">
+        {% for message in messages %}
+        <div class="alert alert-{{ message.tags }} alert-dismissible fade show" role="alert">
+            {% if message.tags == 'error' %}
+                <i class="bi bi-exclamation-triangle-fill me-2"></i>
+            {% elif message.tags == 'warning' %}
+                <i class="bi bi-exclamation-triangle me-2"></i>
+            {% elif message.tags == 'success' %}
+                <i class="bi bi-check-circle-fill me-2"></i>
+            {% else %}
+                <i class="bi bi-info-circle-fill me-2"></i>
+            {% endif %}
+            {{ message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <!-- Main Content -->
+    <main class="py-3">
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- フィードバックボタン -->
+    {% if user.is_authenticated %}
+    <button id="feedback-button" class="feedback-button" type="button" data-bs-toggle="modal" data-bs-target="#feedbackModal">
+        <i class="bi bi-chat-right-text"></i>
+        <span id="feedback-badge" class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger d-none">
+            0
+            <span class="visually-hidden">新規フィードバック</span>
+        </span>
+    </button>
+
+    <!-- フィードバックモーダル -->
+    <div class="modal fade" id="feedbackModal" tabindex="-1" aria-labelledby="feedbackModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="feedbackModalLabel">フィードバック</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="feedback-form" method="post" enctype="multipart/form-data">
+                        {% csrf_token %}
+                        <div class="mb-3">
+                            <label for="feedback-category" class="form-label">カテゴリ</label>
+                            <select class="form-select" id="feedback-category" name="category" required>
+                                <option value="feature">機能改善</option>
+                                <option value="bug">バグ報告</option>
+                                <option value="ui_ux">UI/UX改善</option>
+                                <option value="other">その他</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label for="feedback-priority" class="form-label">優先度</label>
+                            <select class="form-select" id="feedback-priority" name="priority" required>
+                                <option value="high">高</option>
+                                <option value="medium">中</option>
+                                <option value="low">低</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label for="feedback-description" class="form-label">詳細内容</label>
+                            <textarea class="form-control" id="feedback-description" name="description" rows="4" required></textarea>
+                        </div>
+                        <div class="mb-3">
+                            <label for="feedback-attachment" class="form-label">添付ファイル</label>
+                            <input type="file" class="form-control" id="feedback-attachment" name="attachment">
+                        </div>
+                        <input type="hidden" name="page_url" id="feedback-page-url">
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <a href="{% url 'production:feedback_list' %}" class="btn btn-info me-auto">
+                        <i class="bi bi-list-ul"></i> 一覧を見る
+                    </a>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">キャンセル</button>
+                    <button type="button" class="btn btn-primary" id="feedback-submit">送信</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Footer -->
+    <footer class="bg-light border-top mt-5 py-3">
+        <div class="container-fluid">
+            <div class="row">
+                <div class="col-md-6">
+                    <small class="text-muted">
+                        © 2024 生産管理システム - Powered by Django
+                    </small>
+                </div>
+                <div class="col-md-6 text-end">
+                    <small class="text-muted">
+                        <i class="bi bi-clock me-1"></i>
+                        <span id="current-time"></span>
+                    </small>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <!-- Custom JS -->
+    <script src="{% static 'js/theme.js' %}"></script>
+    <script src="{% static 'js/common.js' %}"></script>
+    
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // 計画管理メニューの動的URL設定
+        const planLinks = document.querySelectorAll('[data-plan-type]');
+        const today = new Date().toISOString().split('T')[0];
+        
+        planLinks.forEach(function(link) {
+            const planType = link.getAttribute('data-plan-type');
+            const lineId = link.getAttribute('data-line-id');
+            
+            if (planType === 'list') {
+                link.href = `/production/plan/${lineId}/${today}/`;
+            } else if (planType === 'create') {
+                link.href = `/production/plan/${lineId}/${today}/create/`;
+            }
+        });
+    });
+    </script>
+    
+    {% block extra_js %}{% endblock %}
+    
+    <!-- フィードバック用のスタイルとスクリプト -->
+    <style>
+        .feedback-button {
+            position: fixed;
+            right: 2rem;
+            bottom: 2rem;
+            width: 64px;
+            height: 64px;
+            border-radius: 50%;
+            background: linear-gradient(45deg, #FF6B6B, #FF8E53);
+            border: none;
+            box-shadow: 0 4px 15px rgba(255, 107, 107, 0.4);
+            z-index: 1050;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 1.75rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            overflow: visible; /* バッジを表示するために変更 */
+        }
+
+        /* バッジのスタイル */
+        #feedback-badge {
+            font-size: 0.75rem;
+            margin-left: -0.5rem;
+            margin-top: -0.5rem;
+            animation: badge-pulse 2s infinite;
+        }
+
+        @keyframes badge-pulse {
+            0% {
+                transform: translate(-50%, -50%) scale(1);
+            }
+            50% {
+                transform: translate(-50%, -50%) scale(1.2);
+            }
+            100% {
+                transform: translate(-50%, -50%) scale(1);
+            }
+        }
+
+        .ripple {
+            position: absolute;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.4);
+            transform: scale(0);
+            animation: ripple 0.6s linear;
+            pointer-events: none;
+        }
+
+        @keyframes ripple {
+            to {
+                transform: scale(4);
+                opacity: 0;
+            }
+        }
+
+        /* モーダルのアニメーション改善 */
+        .modal.fade .modal-dialog {
+            transform: scale(0.8);
+            transition: transform 0.3s ease-out;
+        }
+
+        .modal.show .modal-dialog {
+            transform: scale(1);
+        }
+    </style>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const feedbackButton = document.getElementById('feedback-button');
+            const feedbackForm = document.getElementById('feedback-form');
+            const feedbackSubmit = document.getElementById('feedback-submit');
+            const pageUrlInput = document.getElementById('feedback-page-url');
+            const feedbackBadge = document.getElementById('feedback-badge');
+
+            // 新規フィードバック件数を取得する関数
+            async function updateFeedbackCount() {
+                try {
+                    const response = await fetch('{% url "production:feedback_count" %}');
+                    const data = await response.json();
+                    
+                    if (data.count > 0) {
+                        feedbackBadge.textContent = data.count;
+                        feedbackBadge.classList.remove('d-none');
+                    } else {
+                        feedbackBadge.classList.add('d-none');
+                    }
+                } catch (error) {
+                    console.error('Error fetching feedback count:', error);
+                }
+            }
+
+            // 初回実行
+            updateFeedbackCount();
+
+            // 5分ごとに更新
+            setInterval(updateFeedbackCount, 5 * 60 * 1000);
+
+            if (feedbackButton) {
+                feedbackButton.addEventListener('click', function(e) {
+                    const button = e.currentTarget;
+                    const ripple = document.createElement('span');
+                    const rect = button.getBoundingClientRect();
+                    const size = Math.max(rect.width, rect.height);
+                    const x = e.clientX - rect.left - size / 2;
+                    const y = e.clientY - rect.top - size / 2;
+
+                    ripple.style.width = ripple.style.height = `${size}px`;
+                    ripple.style.left = `${x}px`;
+                    ripple.style.top = `${y}px`;
+                    ripple.classList.add('ripple');
+
+                    button.appendChild(ripple);
+
+                    setTimeout(() => {
+                        ripple.remove();
+                    }, 600);
+
+                    // ページURLを設定
+                    pageUrlInput.value = window.location.href;
+                });
+            }
+
+            if (feedbackSubmit) {
+                feedbackSubmit.addEventListener('click', async function() {
+                    const formData = new FormData(feedbackForm);
+                    try {
+                        const response = await fetch('{% url "production:feedback_submit" %}', {
+                            method: 'POST',
+                            body: formData,
+                            headers: {
+                                'X-CSRFToken': formData.get('csrfmiddlewaretoken')
+                            }
+                        });
+                        const data = await response.json();
+                        if (data.status === 'success') {
+                            const modal = bootstrap.Modal.getInstance(document.getElementById('feedbackModal'));
+                            modal.hide();
+                            feedbackForm.reset();
+                            // フィードバック一覧画面に移動
+                            window.location.href = data.redirect_url;
+                        }
+                    } catch (error) {
+                        console.error('Error:', error);
+                    }
+                });
+            }
+        });
+    </script>
+</body>
+</html> 

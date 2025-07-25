@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+
+{% load account %}
+
+{% block title %}ログアウト{% endblock %}
+
+{% block content %}
+<div class="container mt-5">
+    <div class="row justify-content-center">
+        <div class="col-md-6 col-lg-4">
+            <div class="card shadow">
+                <div class="card-header bg-warning text-dark text-center">
+                    <h4 class="mb-0">
+                        <i class="bi bi-box-arrow-right me-2"></i>
+                        ログアウト
+                    </h4>
+                </div>
+                <div class="card-body text-center">
+                    <div class="mb-4">
+                        <i class="bi bi-question-circle display-4 text-warning"></i>
+                    </div>
+                    
+                    <p class="lead">ログアウトしますか？</p>
+                    <p class="text-muted">
+                        ログアウトすると、現在のセッションが終了します。
+                    </p>
+                    
+                    <form method="post" action="{% url 'account_logout' %}">
+                        {% csrf_token %}
+                        {% if redirect_field_value %}
+                            <input type="hidden" name="{{ redirect_field_name }}" value="{{ redirect_field_value }}" />
+                        {% endif %}
+                        
+                        <div class="d-grid gap-2">
+                            <button type="submit" class="btn btn-warning">
+                                <i class="bi bi-box-arrow-right me-1"></i>
+                                ログアウト
+                            </button>
+                            <a href="{% url 'production:line_select' %}" class="btn btn-secondary">
+                                <i class="bi bi-arrow-left me-1"></i>
+                                キャンセル
+                            </a>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %} 

@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+
+{% block title %}ライン登録{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <div class="card shadow">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0">
+                        <i class="bi bi-gear-fill me-2"></i>
+                        ライン登録
+                    </h5>
+                </div>
+                <div class="card-body">
+                    {% if messages %}
+                        {% for message in messages %}
+                            <div class="alert alert-{{ message.tags }}" role="alert">
+                                {{ message }}
+                            </div>
+                        {% endfor %}
+                    {% endif %}
+
+                    {% if not lines %}
+                        <div class="alert alert-warning" role="alert">
+                            <i class="bi bi-exclamation-triangle me-2"></i>
+                            利用可能なラインがありません。
+                        </div>
+                    {% else %}
+                        <form method="post">
+                            {% csrf_token %}
+                            <div class="mb-4">
+                                <p class="text-muted">
+                                    <i class="bi bi-info-circle me-2"></i>
+                                    アクセスしたいラインを選択してください。複数選択可能です。
+                                </p>
+                                <div class="list-group">
+                                    {% for line in lines %}
+                                        <label class="list-group-item">
+                                            <div class="d-flex align-items-center">
+                                                <input type="checkbox" 
+                                                       name="lines" 
+                                                       value="{{ line.sta_no2 }}"
+                                                       class="form-check-input me-3"
+                                                       {% if line.is_registered %}checked{% endif %}>
+                                                <div>
+                                                    <h6 class="mb-0">{{ line.line_name }}</h6>
+                                                    <small class="text-muted">コード: {{ line.sta_no2 }}</small>
+                                                </div>
+                                            </div>
+                                        </label>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                            <div class="d-grid gap-2">
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="bi bi-save me-2"></i>
+                                    登録
+                                </button>
+                                <a href="{% url 'production:line_select' %}" class="btn btn-outline-secondary">
+                                    <i class="bi bi-arrow-left me-2"></i>
+                                    戻る
+                                </a>
+                            </div>
+                        </form>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %} 

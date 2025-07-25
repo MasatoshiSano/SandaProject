@@ -1,0 +1,209 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}ライン選択 - {{ block.super }}{% endblock %}
+
+{% block breadcrumb %}
+<li class="breadcrumb-item active">ライン選択</li>
+{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8 col-lg-6">
+        <div class="card shadow-lg fade-in">
+            <div class="card-header text-center">
+                <h4 class="mb-0">
+                    <i class="bi bi-gear-fill me-2"></i>
+                    ライン・日付選択
+                </h4>
+            </div>
+            <div class="card-body p-4">
+                <form method="post" class="needs-validation" novalidate>
+                    {% csrf_token %}
+                    
+                    <div class="mb-4">
+                        <label for="{{ form.line.id_for_label }}" class="form-label fw-bold">
+                            <i class="bi bi-diagram-3 me-2"></i>生産ライン
+                        </label>
+                        {{ form.line }}
+                        {% if form.line.errors %}
+                            <div class="invalid-feedback d-block">
+                                {{ form.line.errors.0 }}
+                            </div>
+                        {% endif %}
+                        <div class="form-text">
+                            アクセス可能なラインから選択してください
+                        </div>
+                    </div>
+                    
+                    <div class="mb-4">
+                        <label for="{{ form.date.id_for_label }}" class="form-label fw-bold">
+                            <i class="bi bi-calendar3 me-2"></i>対象日付
+                        </label>
+                        {{ form.date }}
+                        {% if form.date.errors %}
+                            <div class="invalid-feedback d-block">
+                                {{ form.date.errors.0 }}
+                            </div>
+                        {% endif %}
+                        <div class="form-text">
+                            表示したい日付を選択してください
+                        </div>
+                    </div>
+                    
+                    <div class="d-grid gap-2">
+                        <button type="submit" class="btn btn-primary btn-lg">
+                            <i class="bi bi-arrow-right-circle me-2"></i>
+                            ダッシュボードへ
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        
+        <!-- アクセス可能ライン一覧 -->
+        {% if accessible_lines %}
+        <div class="card mt-4 fade-in">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-list-check me-2"></i>
+                    アクセス可能ライン
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    {% for access in accessible_lines %}
+                    <div class="col-md-6 mb-3">
+                        <div class="d-flex align-items-center p-3 bg-light rounded">
+                            <div class="flex-shrink-0">
+                                <i class="bi bi-gear text-primary fs-4"></i>
+                            </div>
+                            <div class="flex-grow-1 ms-3">
+                                <h6 class="mb-1">{{ access.line.name }}</h6>
+                                {% if access.line.description %}
+                                <small class="text-muted">{{ access.line.description }}</small>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        {% endif %}
+        
+        <!-- クイックアクション -->
+        <div class="card mt-4 fade-in">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-lightning me-2"></i>
+                    クイックアクション
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <a href="{% url 'production:part_list' %}" class="btn btn-outline-primary w-100">
+                            <i class="bi bi-box me-2"></i>
+                            機種管理
+                        </a>
+                    </div>
+                    <div class="col-md-6">
+                        <a href="{% url 'production:part_create' %}" class="btn btn-outline-success w-100">
+                            <i class="bi bi-plus-circle me-2"></i>
+                            機種作成
+                        </a>
+                    </div>
+                    <div class="col-md-6">
+                        <a href="{% url 'production:category_create' %}" class="btn btn-outline-info w-100">
+                            <i class="bi bi-tag me-2"></i>
+                            カテゴリ作成
+                        </a>
+                    </div>
+                    <div class="col-md-6">
+                        <a href="{% url 'production:tag_create' %}" class="btn btn-outline-warning w-100">
+                            <i class="bi bi-tags me-2"></i>
+                            タグ作成
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 最近の活動 -->
+<div class="row mt-5">
+    <div class="col-12">
+        <div class="card fade-in">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-clock-history me-2"></i>
+                    システム情報
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row text-center">
+                    <div class="col-md-3">
+                        <div class="stat-card p-3 rounded">
+                            <div class="stat-value text-primary">{{ accessible_lines|length }}</div>
+                            <div class="stat-label text-muted">アクセス可能ライン</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="stat-card p-3 rounded">
+                            <div class="stat-value text-success">
+                                <i class="bi bi-check-circle"></i>
+                            </div>
+                            <div class="stat-label text-muted">システム稼働中</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="stat-card p-3 rounded">
+                            <div class="stat-value text-info">{{ user.username }}</div>
+                            <div class="stat-label text-muted">ログインユーザー</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="stat-card p-3 rounded">
+                            <div class="stat-value text-warning">
+                                <span id="current-date"></span>
+                            </div>
+                            <div class="stat-label text-muted">今日の日付</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // 今日の日付を表示
+    const today = new Date().toLocaleDateString('ja-JP', {
+        month: '2-digit',
+        day: '2-digit'
+    });
+    document.getElementById('current-date').textContent = today;
+    
+    // フォームバリデーション
+    const form = document.querySelector('.needs-validation');
+    form.addEventListener('submit', function(event) {
+        if (!form.checkValidity()) {
+            event.preventDefault();
+            event.stopPropagation();
+        }
+        form.classList.add('was-validated');
+    });
+    
+    // 日付フィールドのデフォルト値設定
+    const dateField = document.getElementById('{{ form.date.id_for_label }}');
+    if (dateField && !dateField.value) {
+        dateField.value = new Date().toISOString().split('T')[0];
+    }
+});
+</script>
+{% endblock %} 

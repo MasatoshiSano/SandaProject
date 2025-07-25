@@ -1,0 +1,573 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}
+{% if form.instance.pk %}機種編集{% else %}機種追加{% endif %}
+{% endblock %}
+
+{% block extra_css %}
+<style>
+.form-section {
+    background: var(--bs-light);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+    border-left: 4px solid var(--bs-primary);
+}
+
+.pph-calculator {
+    background: var(--bs-info-bg-subtle);
+    border: 1px solid var(--bs-info-border-subtle);
+    border-radius: 6px;
+    padding: 1rem;
+    margin-top: 1rem;
+}
+
+.cycle-time-display {
+    background: var(--bs-success-bg-subtle);
+    border: 1px solid var(--bs-success-border-subtle);
+    border-radius: 6px;
+    padding: 1rem;
+    margin-top: 1rem;
+    text-align: center;
+}
+
+.required-field {
+    color: var(--bs-danger);
+}
+
+.tag-selector {
+    max-height: 200px;
+    overflow-y: auto;
+    border: 1px solid var(--bs-border-color);
+    border-radius: 6px;
+    padding: 0.5rem;
+}
+
+.tag-item {
+    padding: 0.25rem 0.5rem;
+    margin: 0.125rem;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.tag-item:hover {
+    background: var(--bs-primary-bg-subtle);
+}
+
+.tag-item.selected {
+    background: var(--bs-primary);
+    color: white;
+}
+
+@media (max-width: 768px) {
+    .form-section {
+        padding: 1rem;
+    }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <!-- ヘッダー -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <h2 class="mb-1">
+                        <i class="bi bi-{% if form.instance.pk %}pencil{% else %}plus-circle{% endif %} me-2"></i>
+                        {% if form.instance.pk %}機種編集{% else %}機種追加{% endif %}
+                    </h2>
+                    <p class="text-muted mb-0">
+                        生産機種の{% if form.instance.pk %}編集{% else %}追加{% endif %}
+                    </p>
+                </div>
+                <div>
+                    <a href="{% url 'production:part_list' %}" class="btn btn-outline-secondary">
+                        <i class="bi bi-arrow-left me-2"></i>一覧に戻る
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <form method="post" id="partForm">
+        {% csrf_token %}
+        
+        <!-- エラー表示 -->
+        {% if form.non_field_errors %}
+        <div class="alert alert-danger">
+            {{ form.non_field_errors }}
+        </div>
+        {% endif %}
+
+        <div class="row">
+            <div class="col-lg-8">
+                <!-- 基本情報 -->
+                <div class="form-section">
+                    <h4 class="mb-3">
+                        <i class="bi bi-info-circle me-2"></i>基本情報
+                    </h4>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="{{ form.name.id_for_label }}" class="form-label">
+                                機種名 <span class="required-field">*</span>
+                            </label>
+                            {{ form.name }}
+                            {% if form.name.errors %}
+                            <div class="text-danger small mt-1">{{ form.name.errors }}</div>
+                            {% endif %}
+                        </div>
+                        
+                        <div class="col-md-6 mb-3">
+                            <label for="{{ form.part_number.id_for_label }}" class="form-label">品番</label>
+                            {{ form.part_number }}
+                            {% if form.part_number.errors %}
+                            <div class="text-danger small mt-1">{{ form.part_number.errors }}</div>
+                            {% endif %}
+                            <div class="form-text">製品の品番やコードがあれば入力してください。</div>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="{{ form.category.id_for_label }}" class="form-label">カテゴリ</label>
+                            {{ form.category }}
+                            {% if form.category.errors %}
+                            <div class="text-danger small mt-1">{{ form.category.errors }}</div>
+                            {% endif %}
+                        </div>
+                        
+                        <div class="col-md-6 mb-3">
+                            <div class="form-check form-switch mt-4">
+                                {{ form.is_active }}
+                                <label class="form-check-label" for="{{ form.is_active.id_for_label }}">
+                                    有効
+                                </label>
+                            </div>
+                            {% if form.is_active.errors %}
+                            <div class="text-danger small mt-1">{{ form.is_active.errors }}</div>
+                            {% endif %}
+                            <div class="form-text">無効にすると新しい計画で選択できなくなります。</div>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="{{ form.description.id_for_label }}" class="form-label">説明</label>
+                        {{ form.description }}
+                        {% if form.description.errors %}
+                        <div class="text-danger small mt-1">{{ form.description.errors }}</div>
+                        {% endif %}
+                        <div class="form-text">機種の特徴や注意点があれば記入してください。</div>
+                    </div>
+                </div>
+
+                <!-- 生産設定 -->
+                <div class="form-section">
+                    <h4 class="mb-3">
+                        <i class="bi bi-gear me-2"></i>生産設定
+                    </h4>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="{{ form.target_pph.id_for_label }}" class="form-label">
+                                目標PPH <span class="required-field">*</span>
+                            </label>
+                            {{ form.target_pph }}
+                            {% if form.target_pph.errors %}
+                            <div class="text-danger small mt-1">{{ form.target_pph.errors }}</div>
+                            {% endif %}
+                            <div class="form-text">1時間あたりの目標生産数量</div>
+                        </div>
+                        
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">サイクルタイム（自動計算）</label>
+                            <div id="cycle-time-display" class="cycle-time-display">
+                                <span id="cycle-time-value">-</span> 秒
+                                <div class="small text-muted mt-1">3600秒 ÷ 目標PPH</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- PPH計算機 -->
+                    <div class="pph-calculator">
+                        <h6><i class="bi bi-calculator me-2"></i>PPH計算機</h6>
+                        <div class="row">
+                            <div class="col-md-4">
+                                <label class="form-label">サイクルタイム（秒）</label>
+                                <input type="number" id="calc-cycle-time" class="form-control" step="0.1" placeholder="例: 30">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">効率（%）</label>
+                                <input type="number" id="calc-efficiency" class="form-control" value="85" min="1" max="100">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">計算結果</label>
+                                <div class="form-control bg-light" id="calc-result">-</div>
+                            </div>
+                        </div>
+                        <button type="button" id="apply-calc" class="btn btn-sm btn-primary mt-2">
+                            <i class="bi bi-arrow-up me-1"></i>目標PPHに適用
+                        </button>
+                    </div>
+                </div>
+
+                <!-- タグ設定 -->
+                <div class="form-section">
+                    <h4 class="mb-3">
+                        <i class="bi bi-tags me-2"></i>タグ設定
+                    </h4>
+                    
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <label class="form-label mb-0">タグ</label>
+                            <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#tagCreateModal">
+                                <i class="bi bi-plus me-1"></i>新規作成
+                            </button>
+                        </div>
+                        <div class="tag-selector" id="tag-selector">
+                            {% for tag in available_tags %}
+                            <div class="tag-item" data-tag-id="{{ tag.id }}">
+                                <i class="bi bi-tag me-1"></i>{{ tag.name }}
+                            </div>
+                            {% endfor %}
+                        </div>
+                        <div class="form-text">機種に関連するタグを選択してください。複数選択可能です。</div>
+                        
+                        <!-- 選択されたタグの表示 -->
+                        <div id="selected-tags" class="mt-2">
+                            <strong>選択中:</strong>
+                            <span id="selected-tags-display" class="text-muted">なし</span>
+                        </div>
+                        
+                        <!-- 隠しフィールド -->
+                        {{ form.tags }}
+                    </div>
+                </div>
+            </div>
+
+            <!-- サイドバー -->
+            <div class="col-lg-4">
+                <!-- 保存ボタン -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <i class="bi bi-floppy me-2"></i>保存
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <button type="submit" class="btn btn-success w-100 mb-2">
+                            <i class="bi bi-check-circle me-2"></i>
+                            {% if form.instance.pk %}更新{% else %}作成{% endif %}
+                        </button>
+                        <a href="{% url 'production:part_list' %}" class="btn btn-outline-secondary w-100">
+                            <i class="bi bi-x-circle me-2"></i>キャンセル
+                        </a>
+                    </div>
+                </div>
+
+                <!-- プレビュー -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <i class="bi bi-eye me-2"></i>プレビュー
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <div id="preview-content">
+                            <div class="text-center">
+                                <h6 id="preview-name" class="text-muted">機種名</h6>
+                                <div class="badge bg-primary mb-2">
+                                    <span id="preview-pph">-</span> PPH
+                                </div>
+                                <div class="small text-muted">
+                                    サイクルタイム: <span id="preview-cycle">-</span>秒
+                                </div>
+                                <div class="small text-muted mt-2">
+                                    カテゴリ: <span id="preview-category">-</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ヘルプ -->
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <i class="bi bi-question-circle me-2"></i>ヘルプ
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <ul class="list-unstyled mb-0">
+                            <li class="mb-2">
+                                <i class="bi bi-lightbulb text-warning me-2"></i>
+                                <strong>PPH:</strong> Parts Per Hour（1時間あたりの生産数）
+                            </li>
+                            <li class="mb-2">
+                                <i class="bi bi-clock text-info me-2"></i>
+                                <strong>サイクルタイム:</strong> 1個あたりの生産時間
+                            </li>
+                            <li class="mb-2">
+                                <i class="bi bi-calculator text-secondary me-2"></i>
+                                <strong>計算式:</strong> PPH = 3600 ÷ サイクルタイム
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </form>
+</div>
+
+<!-- タグ作成モーダル -->
+<div class="modal fade" id="tagCreateModal" tabindex="-1" aria-labelledby="tagCreateModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="tagCreateModalLabel">
+                    <i class="bi bi-tag me-2"></i>新しいタグを作成
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="tagCreateForm">
+                    {% csrf_token %}
+                    <div class="mb-3">
+                        <label for="tag-name" class="form-label">タグ名 <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="tag-name" name="name" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="tag-description" class="form-label">説明</label>
+                        <textarea class="form-control" id="tag-description" name="description" rows="3"></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label for="tag-color" class="form-label">色</label>
+                        <input type="color" class="form-control form-control-color" id="tag-color" name="color" value="#6c757d">
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">キャンセル</button>
+                <button type="button" class="btn btn-primary" id="saveTagBtn">
+                    <i class="bi bi-check me-1"></i>作成
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const nameInput = document.getElementById('{{ form.name.id_for_label }}');
+    const pphInput = document.getElementById('{{ form.target_pph.id_for_label }}');
+    const categorySelect = document.getElementById('{{ form.category.id_for_label }}');
+    const calcCycleTimeInput = document.getElementById('calc-cycle-time');
+    const calcEfficiencyInput = document.getElementById('calc-efficiency');
+    const calcResultDiv = document.getElementById('calc-result');
+    const applyCalcBtn = document.getElementById('apply-calc');
+    
+    // 選択されたタグを管理
+    let selectedTags = new Set();
+    
+    // 既存のタグを初期化（編集時）
+    {% if form.instance.pk %}
+    {% for tag in form.instance.tags.all %}
+    selectedTags.add({{ tag.id }});
+    {% endfor %}
+    {% endif %}
+    
+    // タグ選択の初期化
+    initializeTagSelector();
+    
+    // PPH変更時のサイクルタイム計算
+    pphInput.addEventListener('input', function() {
+        updateCycleTime();
+        updatePreview();
+    });
+    
+    // 名前変更時のプレビュー更新
+    nameInput.addEventListener('input', updatePreview);
+    categorySelect.addEventListener('change', updatePreview);
+    
+    // PPH計算機
+    calcCycleTimeInput.addEventListener('input', calculatePPH);
+    calcEfficiencyInput.addEventListener('input', calculatePPH);
+    
+    // 計算結果を適用
+    applyCalcBtn.addEventListener('click', function() {
+        const result = calcResultDiv.textContent;
+        if (result && result !== '-') {
+            pphInput.value = Math.round(parseFloat(result));
+            updateCycleTime();
+            updatePreview();
+        }
+    });
+    
+    function updateCycleTime() {
+        const pph = parseFloat(pphInput.value);
+        if (pph > 0) {
+            const cycleTime = (3600 / pph).toFixed(1);
+            document.getElementById('cycle-time-value').textContent = cycleTime;
+        } else {
+            document.getElementById('cycle-time-value').textContent = '-';
+        }
+    }
+    
+    function calculatePPH() {
+        const cycleTime = parseFloat(calcCycleTimeInput.value);
+        const efficiency = parseFloat(calcEfficiencyInput.value) / 100;
+        
+        if (cycleTime > 0 && efficiency > 0) {
+            const theoreticalPPH = 3600 / cycleTime;
+            const actualPPH = theoreticalPPH * efficiency;
+            calcResultDiv.textContent = actualPPH.toFixed(1);
+        } else {
+            calcResultDiv.textContent = '-';
+        }
+    }
+    
+    function updatePreview() {
+        const name = nameInput.value || '機種名';
+        const pph = pphInput.value || '-';
+        const category = categorySelect.options[categorySelect.selectedIndex]?.text || '-';
+        const cycleTime = pph > 0 ? (3600 / pph).toFixed(1) : '-';
+        
+        document.getElementById('preview-name').textContent = name;
+        document.getElementById('preview-pph').textContent = pph;
+        document.getElementById('preview-cycle').textContent = cycleTime;
+        document.getElementById('preview-category').textContent = category;
+    }
+    
+    function initializeTagSelector() {
+        const tagItems = document.querySelectorAll('.tag-item');
+        const tagsInput = document.getElementById('{{ form.tags.id_for_label }}');
+        
+        tagItems.forEach(item => {
+            const tagId = parseInt(item.dataset.tagId);
+            
+            // 初期選択状態を設定
+            if (selectedTags.has(tagId)) {
+                item.classList.add('selected');
+            }
+            
+            item.addEventListener('click', function() {
+                if (selectedTags.has(tagId)) {
+                    selectedTags.delete(tagId);
+                    this.classList.remove('selected');
+                } else {
+                    selectedTags.add(tagId);
+                    this.classList.add('selected');
+                }
+                updateTagsInput();
+                updateSelectedTagsDisplay();
+            });
+        });
+        
+        updateTagsInput();
+        updateSelectedTagsDisplay();
+    }
+    
+    function updateTagsInput() {
+        const tagsInput = document.getElementById('{{ form.tags.id_for_label }}');
+        tagsInput.value = Array.from(selectedTags).join(',');
+    }
+    
+    function updateSelectedTagsDisplay() {
+        const display = document.getElementById('selected-tags-display');
+        if (selectedTags.size === 0) {
+            display.textContent = 'なし';
+            display.className = 'text-muted';
+        } else {
+            const selectedNames = Array.from(selectedTags).map(id => {
+                const item = document.querySelector(`[data-tag-id="${id}"]`);
+                return item ? item.textContent.trim().replace('🏷️', '') : '';
+            }).filter(name => name);
+            
+            display.innerHTML = selectedNames.map(name => 
+                `<span class="badge bg-secondary me-1">${name}</span>`
+            ).join('');
+            display.className = '';
+        }
+    }
+    
+    // 初期表示
+    updateCycleTime();
+    updatePreview();
+    
+    // タグ作成機能
+    document.getElementById('saveTagBtn').addEventListener('click', function() {
+        const form = document.getElementById('tagCreateForm');
+        const formData = new FormData(form);
+        
+        fetch('{% url "production:tag_create" %}', {
+            method: 'POST',
+            body: formData,
+            headers: {
+                'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // 新しいタグをセレクターに追加
+                const tagSelector = document.getElementById('tag-selector');
+                const newTagItem = document.createElement('div');
+                newTagItem.className = 'tag-item';
+                newTagItem.dataset.tagId = data.tag.id;
+                newTagItem.innerHTML = `<i class="bi bi-tag me-1"></i>${data.tag.name}`;
+                
+                // クリックイベントを追加
+                newTagItem.addEventListener('click', function() {
+                    const tagId = parseInt(this.dataset.tagId);
+                    if (selectedTags.has(tagId)) {
+                        selectedTags.delete(tagId);
+                        this.classList.remove('selected');
+                    } else {
+                        selectedTags.add(tagId);
+                        this.classList.add('selected');
+                    }
+                    updateTagsInput();
+                    updateSelectedTagsDisplay();
+                });
+                
+                tagSelector.appendChild(newTagItem);
+                
+                // モーダルを閉じる
+                const modal = bootstrap.Modal.getInstance(document.getElementById('tagCreateModal'));
+                modal.hide();
+                
+                // フォームをリセット
+                form.reset();
+                document.getElementById('tag-color').value = '#6c757d';
+                
+                // 成功メッセージ
+                alert('タグを作成しました。');
+            } else {
+                alert('タグの作成に失敗しました: ' + (data.error || '不明なエラー'));
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('タグの作成中にエラーが発生しました。');
+        });
+    });
+    
+    // フォーム送信前の確認
+    document.getElementById('partForm').addEventListener('submit', function(e) {
+        const pph = parseFloat(pphInput.value);
+        if (pph <= 0) {
+            e.preventDefault();
+            alert('目標PPHは1以上の値を入力してください。');
+            pphInput.focus();
+            return false;
+        }
+    });
+});
+</script>
+{% endblock %} 

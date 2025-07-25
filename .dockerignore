@@ -1,0 +1,56 @@
+# 仮想環境
+venv/
+.venv/
+env/
+ENV/
+
+# PyChache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# ログファイル
+*.log
+
+# データベース
+db.sqlite3
+*.db
+
+# 開発用ファイル
+.env.local
+.env.development
+.env.test
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+
+# Docker
+.dockerignore
+
+# テストファイル
+coverage/
+.coverage
+.pytest_cache/
+.tox/
+
+# ドキュメント
+*.md
+docs/
+
+# その他
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*

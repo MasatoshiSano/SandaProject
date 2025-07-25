@@ -1,0 +1,1004 @@
+{% extends 'base.html' %}
+{% load static %}
+{% load math_filters %}
+
+{% block title %}ダッシュボード - {{ line.name }} - {{ block.super }}{% endblock %}
+
+{% block breadcrumb %}
+<li class="breadcrumb-item">
+    <a href="{% url 'production:dashboard' line.id date_str %}" class="text-decoration-none">
+        <i class="bi bi-speedometer2 me-1"></i>ダッシュボード
+    </a>
+</li>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+.dashboard-card {
+    transition: all 0.3s ease;
+    border: none;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.dashboard-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+}
+
+.metric-card {
+    background: linear-gradient(135deg, #fff, #f8f9fa);
+    border-left: 4px solid;
+}
+
+.metric-value {
+    font-size: 2rem;
+    font-weight: 700;
+    line-height: 1;
+}
+
+.metric-label {
+    font-size: 0.875rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.chart-container {
+    position: relative;
+    height: 300px;
+}
+
+.status-indicator {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    display: inline-block;
+    margin-right: 8px;
+}
+
+.status-online {
+    background-color: #10b981;
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.5; }
+    100% { opacity: 1; }
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* 全画面表示スタイル */
+.chart-fullscreen {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    z-index: 10000 !important;
+    background: white !important;
+    border: none !important;
+    border-radius: 0 !important;
+    margin: 0 !important;
+}
+
+.chart-fullscreen .chart-container {
+    height: calc(100vh - 80px) !important;
+}
+
+.chart-fullscreen .card-header {
+    position: sticky;
+    top: 0;
+    z-index: 10001;
+    background: white;
+    border-bottom: 1px solid #dee2e6;
+}
+
+.fullscreen-backdrop {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.8);
+    z-index: 9999;
+    display: none;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- ヘッダー -->
+<div class="row mb-4">
+    <div class="col-md-8">
+        <h2 class="mb-1">
+            <i class="bi bi-speedometer2 me-2 text-primary"></i>
+            {{ line.name }} ダッシュボード
+        </h2>
+        <p class="text-muted mb-0">
+            <i class="bi bi-calendar3 me-1"></i>{{ date|date:"Y年m月d日 (l)" }}
+            <span class="status-indicator status-online ms-3" id="status-indicator"></span>
+            <span class="small" id="update-status">リアルタイム更新中 (30秒間隔)</span>
+        </p>
+    </div>
+    <div class="col-md-4 text-end">
+        <!-- 設定パネル -->
+        <div class="d-flex gap-2 mb-2">
+            <div class="btn-group" role="group">
+                <button class="btn btn-sm btn-outline-info dropdown-toggle" data-bs-toggle="dropdown">
+                    <i class="bi bi-gear me-1"></i>設定
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end">
+                    <li><h6 class="dropdown-header">自動更新</h6></li>
+                    <li>
+                        <a class="dropdown-item" href="#" id="toggle-auto-update">
+                            <i class="bi bi-pause-circle me-2" id="auto-update-icon"></i>
+                            <span id="auto-update-text">停止</span>
+                        </a>
+                    </li>
+                    <li><hr class="dropdown-divider"></li>
+                    <li><h6 class="dropdown-header">更新間隔</h6></li>
+                    <li><a class="dropdown-item update-interval" href="#" data-interval="15000">15秒</a></li>
+                    <li><a class="dropdown-item update-interval active" href="#" data-interval="30000">30秒</a></li>
+                    <li><a class="dropdown-item update-interval" href="#" data-interval="60000">1分</a></li>
+                    <li><a class="dropdown-item update-interval" href="#" data-interval="120000">2分</a></li>
+                </ul>
+            </div>
+            <div class="btn-group" role="group">
+                <button class="btn btn-sm btn-outline-success" id="manual-refresh" title="手動更新（数値のみ）">
+                    <i class="bi bi-arrow-clockwise"></i>
+                </button>
+                <button class="btn btn-sm btn-outline-success dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown" title="更新オプション">
+                    <span class="visually-hidden">更新オプション</span>
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end">
+                    <li><h6 class="dropdown-header">更新タイプ</h6></li>
+                    <li>
+                        <a class="dropdown-item" href="#" id="partial-refresh">
+                            <i class="bi bi-arrow-clockwise me-2"></i>部分更新（数値のみ）
+                        </a>
+                    </li>
+                    <li>
+                        <a class="dropdown-item" href="#" id="full-refresh">
+                            <i class="bi bi-arrow-repeat me-2"></i>完全更新（グラフ含む）
+                        </a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+        
+        <!-- 日付ナビゲーション -->
+        <div class="d-flex gap-2 align-items-center">
+            <div class="btn-group" role="group">
+                <a href="{% url 'production:dashboard' line.id prev_date %}" class="btn btn-outline-secondary" id="prevDayBtn">
+                    <i class="bi bi-chevron-left"></i> 前日
+                </a>
+                <a href="{% url 'production:dashboard' line.id next_date %}" class="btn btn-outline-secondary" id="nextDayBtn">
+                    次日 <i class="bi bi-chevron-right"></i>
+                </a>
+            </div>
+            <div class="input-group" style="width: 180px;">
+                <input type="date" class="form-control" id="dateSelector" value="{{ date|date:'Y-m-d' }}" title="日付を選択">
+                <button class="btn btn-outline-primary" type="button" id="todayBtn" title="今日">
+                    <i class="bi bi-calendar-today"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- メトリクスカード -->
+<div class="row mb-4">
+    <div class="col-md-3 mb-3">
+        <div class="card metric-card border-primary">
+            <div class="card-body text-center">
+                <div class="metric-value text-primary" id="total-planned">
+                    {{ dashboard_data.total_planned|default:0 }}
+                </div>
+                <div class="metric-label text-muted">計画数</div>
+                <small class="text-muted">
+                    <i class="bi bi-target me-1"></i>目標
+                </small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3 mb-3">
+        <div class="card metric-card border-success">
+            <div class="card-body text-center">
+                <div class="metric-value text-success" id="total-actual">
+                    {{ dashboard_data.total_actual|default:0 }}
+                </div>
+                <div class="metric-label text-muted">実績数</div>
+                <small class="text-muted">
+                    <i class="bi bi-check-circle me-1"></i>完了
+                </small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3 mb-3">
+        <div class="card metric-card border-info">
+            <div class="card-body text-center">
+                <div class="metric-value text-info" id="achievement-rate">
+                    {{ dashboard_data.achievement_rate|default:0|floatformat:1 }}%
+                </div>
+                <div class="metric-label text-muted">達成率</div>
+                <small class="text-muted">
+                    <i class="bi bi-graph-up me-1"></i>進捗
+                </small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3 mb-3">
+        <div class="card metric-card border-warning">
+            <div class="card-body text-center">
+                <div class="metric-value text-warning" id="remaining">
+                    {{ dashboard_data.remaining|default:0 }}
+                </div>
+                <div class="metric-label text-muted">残り</div>
+                <small class="text-muted">
+                    <i class="bi bi-hourglass-split me-1"></i>予定
+                </small>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- チャートとテーブル -->
+<div class="row">
+    <!-- 時間別グラフ -->
+    <div class="col-lg-8 mb-4">
+        <div class="card dashboard-card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="bi bi-bar-chart me-2"></i>時間別 計画・実績
+                </h5>
+                <div class="d-flex gap-2">
+                    <div class="btn-group btn-group-sm" role="group">
+                        <button type="button" class="btn btn-outline-primary active" data-chart="hourly">
+                            時間別
+                        </button>
+                        <button type="button" class="btn btn-outline-primary" data-chart="cumulative-parts">
+                            機種別累積
+                        </button>
+                        <button type="button" class="btn btn-outline-primary" data-chart="cumulative-total">
+                            合計累積
+                        </button>
+                    </div>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="fullscreenBtn" title="全画面表示">
+                        <i class="bi bi-arrows-fullscreen"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="chart-container">
+                    <canvas id="hourlyChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 機種別進捗 -->
+    <div class="col-lg-4 mb-4">
+        <div class="card dashboard-card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-pie-chart me-2"></i>機種別進捗
+                </h5>
+            </div>
+            <div class="card-body">
+                <div id="parts-progress">
+                    {% for part in dashboard_data.parts %}
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <span class="fw-medium">{{ part.name }}</span>
+                            <span class="badge bg-{% if part.achievement_rate >= 100 %}success{% elif part.achievement_rate >= 80 %}warning{% else %}danger{% endif %}">
+                                {{ part.achievement_rate|floatformat:1 }}%
+                            </span>
+                        </div>
+                        <div class="progress" style="height: 8px;">
+                            <div class="progress-bar bg-{% if part.achievement_rate >= 100 %}success{% elif part.achievement_rate >= 80 %}warning{% else %}danger{% endif %}" 
+                                 style="width: {{ part.achievement_rate|floatformat:1 }}%"></div>
+                        </div>
+                        <small class="text-muted">
+                            {{ part.actual }}/{{ part.planned }} 個
+                        </small>
+                    </div>
+                    {% empty %}
+                    <div class="text-center text-muted py-4">
+                        <i class="bi bi-inbox fs-1"></i>
+                        <p class="mt-2">計画データがありません</p>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- アクションボタン -->
+<div class="row">
+    <div class="col-12">
+        <div class="card dashboard-card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-lightning me-2"></i>クイックアクション
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-2">
+                        <a href="{% url 'production:plan_list' line.id date_str %}" class="btn btn-primary w-100">
+                            <i class="bi bi-calendar-check me-2"></i>
+                            計画管理
+                        </a>
+                    </div>
+                    <div class="col-md-2">
+                        <a href="{% url 'production:plan_create' line.id date_str %}" class="btn btn-success w-100">
+                            <i class="bi bi-plus-circle me-2"></i>
+                            計画作成
+                        </a>
+                    </div>
+                    <div class="col-md-2">
+                        <a href="{% url 'production:result_list' line.id %}" class="btn btn-info w-100">
+                            <i class="bi bi-table me-2"></i>
+                            実績一覧
+                        </a>
+                    </div>
+                    <div class="col-md-2">
+                        <a href="{% url 'production:result_create' %}" class="btn btn-warning w-100">
+                            <i class="bi bi-plus-circle me-2"></i>
+                            実績登録
+                        </a>
+                    </div>
+                    <div class="col-md-2">
+                        <a href="{% url 'production:weekly_graph' line.id %}" class="btn btn-outline-primary w-100">
+                            <i class="bi bi-calendar-week me-2"></i>
+                            週別分析
+                        </a>
+                    </div>
+                    <div class="col-md-2">
+                        <a href="{% url 'production:monthly_graph' line.id %}" class="btn btn-outline-secondary w-100">
+                            <i class="bi bi-calendar-month me-2"></i>
+                            月別分析
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    let currentChart = null;
+            let chartMode = 'hourly'; // 'hourly', 'cumulative-parts', 'cumulative-total'
+    
+    // 初期値計算
+    function calculateInitialMetrics() {
+        const achievementRateSpan = document.querySelector('#achievement-rate span');
+        const remainingSpan = document.querySelector('#remaining span');
+        
+        if (achievementRateSpan) {
+            const planned = parseInt(achievementRateSpan.getAttribute('data-planned')) || 0;
+            const actual = parseInt(achievementRateSpan.getAttribute('data-actual')) || 0;
+            const rate = planned > 0 ? (actual / planned * 100).toFixed(1) : 0;
+            achievementRateSpan.textContent = rate + '%';
+        }
+        
+        if (remainingSpan) {
+            const planned = parseInt(remainingSpan.getAttribute('data-planned')) || 0;
+            const actual = parseInt(remainingSpan.getAttribute('data-actual')) || 0;
+            const remaining = Math.max(0, planned - actual);
+            remainingSpan.textContent = remaining;
+        }
+    }
+    
+    // 初期計算実行
+    calculateInitialMetrics();
+    
+    // 簡単なチャート表示（Chart.jsが利用可能な場合）
+    if (typeof Chart !== 'undefined') {
+        const ctx = document.getElementById('hourlyChart');
+        if (ctx) {
+            let hourlyData = {{ dashboard_data.hourly|safe|default:"[]" }};
+            
+            // 機種別累積データを計算する関数
+            function calculatePartsCumulativeData(data) {
+                const cumulativeData = [];
+                const partCumulatives = new Map(); // 機種別累積値
+                
+                data.forEach(hourData => {
+                    const newHourData = {
+                        hour: hourData.hour,
+                        total_planned: 0,
+                        total_actual: 0,
+                        parts: {}
+                    };
+                    
+                    // 機種別累積計算
+                    if (hourData.parts) {
+                        Object.entries(hourData.parts).forEach(([partId, partData]) => {
+                            if (!partCumulatives.has(partId)) {
+                                partCumulatives.set(partId, {
+                                    planned: 0,
+                                    actual: 0,
+                                    name: partData.name,
+                                    color: partData.color
+                                });
+                            }
+                            
+                            const cumulative = partCumulatives.get(partId);
+                            cumulative.planned += partData.planned || 0;
+                            cumulative.actual += partData.actual || 0;
+                            
+                            newHourData.parts[partId] = {
+                                name: cumulative.name,
+                                color: cumulative.color,
+                                planned: cumulative.planned,
+                                actual: cumulative.actual
+                            };
+                        });
+                    }
+                    
+                    // 全機種の累積値を合計
+                    partCumulatives.forEach((cumulative) => {
+                        newHourData.total_planned = Math.max(newHourData.total_planned, cumulative.planned);
+                        newHourData.total_actual = Math.max(newHourData.total_actual, cumulative.actual);
+                    });
+                    
+                    // 各機種の累積値を保持（0にしない）
+                    partCumulatives.forEach((cumulative, partId) => {
+                        if (!newHourData.parts[partId]) {
+                            newHourData.parts[partId] = {
+                                name: cumulative.name,
+                                color: cumulative.color,
+                                planned: cumulative.planned,
+                                actual: cumulative.actual
+                            };
+                        }
+                    });
+                    
+                    cumulativeData.push(newHourData);
+                });
+                
+                return cumulativeData;
+            }
+            
+            // 合計累積データを計算する関数
+            function calculateTotalCumulativeData(data) {
+                const cumulativeData = [];
+                let totalCumulativePlanned = 0;
+                let totalCumulativeActual = 0;
+                
+                data.forEach(hourData => {
+                    // その時間の合計を累積に加算
+                    totalCumulativePlanned += hourData.total_planned || 0;
+                    totalCumulativeActual += hourData.total_actual || 0;
+                    
+                    const newHourData = {
+                        hour: hourData.hour,
+                        total_planned: totalCumulativePlanned,
+                        total_actual: totalCumulativeActual,
+                        parts: {
+                            'total': {
+                                name: '全機種合計',
+                                color: '#007bff',
+                                planned: totalCumulativePlanned,
+                                actual: totalCumulativeActual
+                            }
+                        }
+                    };
+                    
+                    cumulativeData.push(newHourData);
+                });
+                
+                return cumulativeData;
+            }
+            
+            // 機種ごとの色を調整する関数
+            function adjustColorOpacity(color, opacity) {
+                // HEX色をRGBA色に変換
+                const hex = color.replace('#', '');
+                const r = parseInt(hex.substring(0, 2), 16);
+                const g = parseInt(hex.substring(2, 4), 16);
+                const b = parseInt(hex.substring(4, 6), 16);
+                return `rgba(${r}, ${g}, ${b}, ${opacity})`;
+            }
+            
+            // チャートを更新する関数
+            function updateChart(mode) {
+                if (currentChart) {
+                    currentChart.destroy();
+                }
+                
+                let data;
+                let chartType;
+                let titleText;
+                
+                if (mode === 'cumulative-parts') {
+                    data = calculatePartsCumulativeData(hourlyData);
+                    chartType = 'line';
+                    titleText = '機種別累積 計画・実績';
+                } else if (mode === 'cumulative-total') {
+                    data = calculateTotalCumulativeData(hourlyData);
+                    chartType = 'line';
+                    titleText = '合計累積 計画・実績';
+                } else {
+                    data = hourlyData;
+                    chartType = 'bar';
+                    titleText = '時間別 計画・実績';
+                }
+                
+                // 全ての機種を取得
+                const allParts = new Map();
+                data.forEach(hourData => {
+                    if (hourData.parts) {
+                        Object.entries(hourData.parts).forEach(([partId, partData]) => {
+                            if (!allParts.has(partId)) {
+                                allParts.set(partId, {
+                                    name: partData.name,
+                                    color: partData.color
+                                });
+                            }
+                        });
+                    }
+                });
+                
+                // データセットを生成（機種別の計画・実績）
+                const datasets = [];
+                
+                allParts.forEach((partInfo, partId) => {
+                    const baseColor = partInfo.color;
+                    const isTotalMode = (mode === 'cumulative-total');
+                    const strokeColor = isTotalMode ? '#000' : baseColor;
+                    // 計画データセット
+                    datasets.push({
+                        label: `${partInfo.name} (計画)`,
+                        data: data.map(d => {
+                            const partData = d.parts && d.parts[partId];
+                            return partData ? partData.planned : 0;
+                        }),
+                        backgroundColor: (mode === 'cumulative-parts' || mode === 'cumulative-total') ? adjustColorOpacity(baseColor, 0.2) : adjustColorOpacity(baseColor, 0.7),
+                        borderColor: baseColor,
+                        borderWidth: (mode === 'cumulative-parts' || mode === 'cumulative-total') ? 2 : 1,
+                        fill: (mode === 'cumulative-parts' || mode === 'cumulative-total'),
+                        tension: (mode === 'cumulative-parts' || mode === 'cumulative-total') ? 0.1 : 0,
+                        stack: (mode === 'cumulative-parts' || mode === 'cumulative-total') ? undefined : 'planned'
+                    });
+                    
+                    // 実績データセット
+                    datasets.push({
+                        label: `${partInfo.name} (実績)`,
+                        data: data.map(d => {
+                            const partData = d.parts && d.parts[partId];
+                            return partData ? partData.actual : 0;
+                        }),
+                        backgroundColor: (mode === 'cumulative-parts' || mode === 'cumulative-total') ? adjustColorOpacity(baseColor, 0.1) : adjustColorOpacity(baseColor, 0.5),
+                        borderColor: baseColor,
+                        borderWidth: (mode === 'cumulative-parts' || mode === 'cumulative-total') ? 2 : 1,
+                        borderDash: [5, 5], // 実績は点線
+                        fill: (mode === 'cumulative-parts' || mode === 'cumulative-total'),
+                        tension: (mode === 'cumulative-parts' || mode === 'cumulative-total') ? 0.1 : 0,
+                        stack: (mode === 'cumulative-parts' || mode === 'cumulative-total') ? undefined : 'actual'
+                    });
+                });
+                
+                currentChart = new Chart(ctx, {
+                    type: chartType,
+                    data: {
+                        labels: data.map(d => d.hour || ''),
+                        datasets: datasets
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                position: 'top',
+                                labels: {
+                                    usePointStyle: true,
+                                    filter: function(legendItem, chartData) {
+                                        // 計画と実績を分けて表示
+                                        return true;
+                                    }
+                                }
+                            },
+                            title: {
+                                display: true,
+                                text: titleText
+                            },
+                            tooltip: {
+                                mode: 'index',
+                                intersect: false,
+                                callbacks: {
+                                    title: function(tooltipItems) {
+                                        return `時刻: ${tooltipItems[0].label}`;
+                                    },
+                                    label: function(context) {
+                                        const label = context.dataset.label || '';
+                                        const value = context.parsed.y;
+                                        return `${label}: ${value}個`;
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            x: {
+                                stacked: mode === 'hourly'
+                            },
+                            y: {
+                                beginAtZero: true,
+                                stacked: mode === 'hourly',
+                                ticks: {
+                                    stepSize: 1
+                                }
+                            }
+                        },
+                        interaction: {
+                            mode: 'index',
+                            intersect: false
+                        }
+                    }
+                });
+            }
+            
+            // 初期チャート表示
+            updateChart(chartMode);
+            
+            // ボタンのクリックイベントを追加
+            document.querySelectorAll('[data-chart]').forEach(button => {
+                button.addEventListener('click', function() {
+                    const newMode = this.getAttribute('data-chart');
+                    
+                    // ボタンの状態を更新
+                    document.querySelectorAll('[data-chart]').forEach(btn => {
+                        btn.classList.remove('active');
+                    });
+                    this.classList.add('active');
+                    
+                    // チャートモードを更新
+                    chartMode = newMode;
+                    updateChart(chartMode);
+                });
+            });
+        }
+    }
+    
+    // 自動更新設定
+    let autoUpdateEnabled = true;
+    let updateInterval = 15000; // デフォルト15秒
+    let updateTimer = null;
+    
+    // 更新状況を表示する関数
+    function updateStatus() {
+        const statusIndicator = document.getElementById('status-indicator');
+        const updateStatusText = document.getElementById('update-status');
+        const autoUpdateText = document.getElementById('auto-update-text');
+        const autoUpdateIcon = document.getElementById('auto-update-icon');
+        
+        if (autoUpdateEnabled) {
+            statusIndicator.className = 'status-indicator status-online ms-3';
+            const intervalText = updateInterval === 15000 ? '15秒' : 
+                               updateInterval === 30000 ? '30秒' : 
+                               updateInterval === 60000 ? '1分' : '2分';
+            updateStatusText.textContent = `リアルタイム更新中 (${intervalText}間隔)`;
+            autoUpdateText.textContent = '停止';
+            autoUpdateIcon.className = 'bi bi-pause-circle me-2';
+        } else {
+            statusIndicator.className = 'status-indicator ms-3';
+            statusIndicator.style.backgroundColor = '#6c757d';
+            updateStatusText.textContent = '自動更新停止中';
+            autoUpdateText.textContent = '開始';
+            autoUpdateIcon.className = 'bi bi-play-circle me-2';
+        }
+    }
+    
+    // データ更新関数（部分更新：グラフには一切触らない）
+    function updateDashboardData() {
+        fetch(`/production/api/dashboard-data/{{ line.id }}/{{ date_str }}/`)
+            .then(response => response.json())
+            .then(data => {
+                // メトリクス更新のみ
+                updateMetrics(data);
+                
+                // 計画カード更新のみ（存在する場合）
+                if (data.plans) {
+                    updatePlanCards(data.plans);
+                }
+                
+                // グラフ更新部分を削除！グラフの状態は保持される
+                
+            })
+            .catch(error => {
+                console.error('Error fetching dashboard data:', error);
+                // エラー時の視覚的フィードバック
+                showUpdateError();
+            });
+    }
+    
+    // メトリクス更新関数
+    function updateMetrics(data) {
+        const planned = data.total_planned || 0;
+        const actual = data.total_actual || 0;
+        const achievementRate = data.achievement_rate ? data.achievement_rate.toFixed(1) : 0;
+        const remaining = data.remaining || Math.max(0, planned - actual);
+        
+        // 数値の更新（変更があった場合のみ視覚的フィードバック）
+        updateElementWithFeedback('total-planned', planned);
+        updateElementWithFeedback('total-actual', actual);
+        updateElementWithFeedback('achievement-rate', achievementRate + '%');
+        updateElementWithFeedback('remaining', remaining);
+    }
+    
+    // 要素更新＋変更フィードバック
+    function updateElementWithFeedback(elementId, newValue) {
+        const element = document.getElementById(elementId);
+        if (!element) return;
+        
+        const oldValue = element.textContent;
+        if (oldValue !== newValue.toString()) {
+            element.textContent = newValue;
+            // 変更フラッシュ効果
+            element.style.backgroundColor = '#d4edda';
+            element.style.transition = 'background-color 0.3s ease';
+            setTimeout(() => {
+                element.style.backgroundColor = '';
+            }, 1500);
+        }
+    }
+    
+    // 計画カード更新関数
+    function updatePlanCards(plans) {
+        plans.forEach(plan => {
+            const planCard = document.querySelector(`[data-plan-id="${plan.id}"]`);
+            if (!planCard) return;
+            
+            // 実績数量更新
+            const actualElement = planCard.querySelector('.actual-quantity');
+            if (actualElement) {
+                const oldValue = actualElement.textContent;
+                const newValue = plan.actual_quantity || 0;
+                if (oldValue !== newValue.toString()) {
+                    actualElement.textContent = newValue;
+                    // 更新フラッシュ効果
+                    actualElement.style.backgroundColor = '#d1ecf1';
+                    setTimeout(() => {
+                        actualElement.style.backgroundColor = '';
+                    }, 2000);
+                }
+            }
+            
+            // 進捗バー更新
+            const progressBar = planCard.querySelector('.progress-bar');
+            if (progressBar && plan.achievement_rate !== undefined) {
+                const newWidth = Math.min(plan.achievement_rate, 100);
+                progressBar.style.width = newWidth + '%';
+                progressBar.setAttribute('aria-valuenow', newWidth);
+                
+                // 進捗率バッジ更新
+                const progressBadge = planCard.querySelector('.progress-badge');
+                if (progressBadge) {
+                    progressBadge.textContent = newWidth.toFixed(1) + '%';
+                }
+            }
+        });
+    }
+    
+    // エラー表示関数
+    function showUpdateError() {
+        const statusIndicator = document.getElementById('status-indicator');
+        if (statusIndicator) {
+            statusIndicator.style.backgroundColor = '#dc3545';
+            setTimeout(() => {
+                statusIndicator.style.backgroundColor = autoUpdateEnabled ? '#28a745' : '#6c757d';
+            }, 3000);
+        }
+    }
+    
+    // 自動更新開始関数
+    function startAutoUpdate() {
+        if (updateTimer) {
+            clearInterval(updateTimer);
+        }
+        if (autoUpdateEnabled) {
+            updateTimer = setInterval(updateDashboardData, updateInterval);
+        }
+    }
+    
+    // 手動更新ボタン（部分更新）
+    document.getElementById('manual-refresh').addEventListener('click', function() {
+        updateDashboardData();
+        
+        // ボタンアニメーション
+        const btn = this;
+        const icon = btn.querySelector('i');
+        icon.style.animation = 'spin 1s linear';
+        setTimeout(() => {
+            icon.style.animation = '';
+        }, 1000);
+    });
+    
+    // 部分更新オプション
+    document.getElementById('partial-refresh').addEventListener('click', function(e) {
+        e.preventDefault();
+        updateDashboardData();
+    });
+    
+    // 完全更新オプション
+    document.getElementById('full-refresh').addEventListener('click', function(e) {
+        e.preventDefault();
+        location.reload();
+    });
+    
+    // 自動更新切り替え
+    document.getElementById('toggle-auto-update').addEventListener('click', function(e) {
+        e.preventDefault();
+        autoUpdateEnabled = !autoUpdateEnabled;
+        updateStatus();
+        startAutoUpdate();
+    });
+    
+    // 更新間隔変更
+    document.querySelectorAll('.update-interval').forEach(item => {
+        item.addEventListener('click', function(e) {
+            e.preventDefault();
+            // アクティブ状態を更新
+            document.querySelectorAll('.update-interval').forEach(i => i.classList.remove('active'));
+            this.classList.add('active');
+            
+            // 間隔を更新
+            updateInterval = parseInt(this.getAttribute('data-interval')); // 既にミリ秒
+            updateStatus();
+            startAutoUpdate();
+        });
+    });
+    
+    // 日付選択機能
+    const dateSelector = document.getElementById('dateSelector');
+    const prevDayBtn = document.getElementById('prevDayBtn');
+    const nextDayBtn = document.getElementById('nextDayBtn');
+    const todayBtn = document.getElementById('todayBtn');
+    const lineId = {{ line.id }};
+    
+    // 日付変更時の処理
+    function changeDate(newDate) {
+        const url = `/production/dashboard/${lineId}/${newDate}/`;
+        window.location.href = url;
+    }
+    
+    // 日付入力の変更
+    dateSelector.addEventListener('change', function() {
+        if (this.value) {
+            changeDate(this.value);
+        }
+    });
+    
+    // 今日ボタン
+    todayBtn.addEventListener('click', function() {
+        const today = new Date().toISOString().split('T')[0];
+        changeDate(today);
+    });
+    
+    // キーボードショートカット
+    document.addEventListener('keydown', function(e) {
+        if (e.altKey) {
+            switch(e.key) {
+                case 'ArrowLeft':
+                    e.preventDefault();
+                    prevDayBtn.click();
+                    break;
+                case 'ArrowRight':
+                    e.preventDefault();
+                    nextDayBtn.click();
+                    break;
+                case 'h':
+                    e.preventDefault();
+                    todayBtn.click();
+                    break;
+            }
+        }
+    });
+    
+    // 全画面表示機能
+    const fullscreenBtn = document.getElementById('fullscreenBtn');
+    const chartCard = document.querySelector('.col-lg-8 .card');
+    let isFullscreen = false;
+    
+    fullscreenBtn.addEventListener('click', function() {
+        toggleFullscreen();
+    });
+    
+    function toggleFullscreen() {
+        const icon = fullscreenBtn.querySelector('i');
+        
+        if (!isFullscreen) {
+            // 全画面モードに切り替え
+            chartCard.classList.add('chart-fullscreen');
+            icon.className = 'bi bi-fullscreen-exit';
+            fullscreenBtn.title = '通常表示';
+            isFullscreen = true;
+            
+            // チャートのリサイズ
+            if (currentChart) {
+                setTimeout(() => {
+                    currentChart.resize();
+                }, 100);
+            }
+            
+            // ESCキーで終了
+            document.addEventListener('keydown', handleEscKey);
+        } else {
+            // 通常モードに戻る
+            exitFullscreen();
+        }
+    }
+    
+    function exitFullscreen() {
+        const icon = fullscreenBtn.querySelector('i');
+        chartCard.classList.remove('chart-fullscreen');
+        icon.className = 'bi bi-arrows-fullscreen';
+        fullscreenBtn.title = '全画面表示';
+        isFullscreen = false;
+        
+        // チャートのリサイズ
+        if (currentChart) {
+            setTimeout(() => {
+                currentChart.resize();
+            }, 100);
+        }
+        
+        document.removeEventListener('keydown', handleEscKey);
+    }
+    
+    function handleEscKey(e) {
+        if (e.key === 'Escape' && isFullscreen) {
+            exitFullscreen();
+        }
+    }
+    
+    // ページ可視性による更新頻度調整
+    let originalUpdateInterval = updateInterval;
+    document.addEventListener('visibilitychange', function() {
+        if (document.hidden) {
+            // ページが非表示の時は更新頻度を下げる
+            updateInterval = originalUpdateInterval * 3;
+        } else {
+            // ページが表示された時は通常の更新頻度に戻し、即座に更新
+            updateInterval = originalUpdateInterval;
+            if (autoUpdateEnabled) {
+                updateDashboardData();
+            }
+        }
+        
+        if (autoUpdateEnabled) {
+            startAutoUpdate();
+        }
+    });
+    
+    // ネットワーク状態監視
+    window.addEventListener('online', function() {
+        if (autoUpdateEnabled) {
+            updateDashboardData();
+            startAutoUpdate();
+        }
+    });
+    
+    window.addEventListener('offline', function() {
+        console.warn('オフライン状態です。自動更新が停止しています。');
+        if (updateTimer) {
+            clearInterval(updateTimer);
+        }
+    });
+    
+    // 初期状態設定
+    updateStatus();
+    startAutoUpdate();
+});
+</script>
+{% endblock %} 

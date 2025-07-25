@@ -1,0 +1,375 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}
+{% if form.instance.pk %}タグ編集{% else %}タグ追加{% endif %}
+{% endblock %}
+
+{% block extra_css %}
+<style>
+.form-container {
+    max-width: 600px;
+    margin: 0 auto;
+}
+
+.form-section {
+    background: var(--bs-light);
+    border-radius: 8px;
+    padding: 2rem;
+    border-left: 4px solid var(--bs-secondary);
+}
+
+.required-field {
+    color: var(--bs-danger);
+}
+
+.preview-card {
+    background: var(--bs-secondary-bg-subtle);
+    border: 1px solid var(--bs-secondary-border-subtle);
+    border-radius: 8px;
+    padding: 1.5rem;
+    text-align: center;
+}
+
+.color-picker {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-top: 0.5rem;
+}
+
+.color-option {
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    border: 2px solid transparent;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.color-option:hover {
+    transform: scale(1.1);
+    border-color: var(--bs-dark);
+}
+
+.color-option.selected {
+    border-color: var(--bs-dark);
+    box-shadow: 0 0 0 2px var(--bs-white), 0 0 0 4px var(--bs-dark);
+}
+
+.existing-tags {
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.tag-item {
+    transition: all 0.2s ease;
+}
+
+.tag-item:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <!-- ヘッダー -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <h2 class="mb-1">
+                        <i class="bi bi-{% if form.instance.pk %}pencil{% else %}tag{% endif %} me-2"></i>
+                        {% if form.instance.pk %}タグ編集{% else %}タグ追加{% endif %}
+                    </h2>
+                    <p class="text-muted mb-0">
+                        機種分類用タグの{% if form.instance.pk %}編集{% else %}追加{% endif %}
+                    </p>
+                </div>
+                <div>
+                    <a href="{% url 'production:part_list' %}" class="btn btn-outline-secondary">
+                        <i class="bi bi-arrow-left me-2"></i>機種一覧に戻る
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="form-container">
+        <form method="post" id="tagForm">
+            {% csrf_token %}
+            
+            <!-- エラー表示 -->
+            {% if form.non_field_errors %}
+            <div class="alert alert-danger">
+                {{ form.non_field_errors }}
+            </div>
+            {% endif %}
+
+            <div class="form-section">
+                <h4 class="mb-4 text-center">
+                    <i class="bi bi-tag me-2"></i>タグ情報
+                </h4>
+                
+                <div class="mb-4">
+                    <label for="{{ form.name.id_for_label }}" class="form-label">
+                        タグ名 <span class="required-field">*</span>
+                    </label>
+                    {{ form.name }}
+                    {% if form.name.errors %}
+                    <div class="text-danger small mt-1">{{ form.name.errors }}</div>
+                    {% endif %}
+                    <div class="form-text">機種に付けるタグ名を入力してください。</div>
+                </div>
+                
+                <div class="mb-4">
+                    <label for="{{ form.description.id_for_label }}" class="form-label">説明</label>
+                    {{ form.description }}
+                    {% if form.description.errors %}
+                    <div class="text-danger small mt-1">{{ form.description.errors }}</div>
+                    {% endif %}
+                    <div class="form-text">タグの説明や用途を記入してください。</div>
+                </div>
+                
+                <div class="mb-4">
+                    <label class="form-label">カラー</label>
+                    <div class="color-picker">
+                        <div class="color-option" data-color="#6c757d" style="background-color: #6c757d;" title="グレー（デフォルト）"></div>
+                        <div class="color-option" data-color="#007bff" style="background-color: #007bff;" title="ブルー"></div>
+                        <div class="color-option" data-color="#28a745" style="background-color: #28a745;" title="グリーン"></div>
+                        <div class="color-option" data-color="#dc3545" style="background-color: #dc3545;" title="レッド"></div>
+                        <div class="color-option" data-color="#ffc107" style="background-color: #ffc107;" title="イエロー"></div>
+                        <div class="color-option" data-color="#17a2b8" style="background-color: #17a2b8;" title="シアン"></div>
+                        <div class="color-option" data-color="#6f42c1" style="background-color: #6f42c1;" title="パープル"></div>
+                        <div class="color-option" data-color="#fd7e14" style="background-color: #fd7e14;" title="オレンジ"></div>
+                        <div class="color-option" data-color="#20c997" style="background-color: #20c997;" title="ティール"></div>
+                        <div class="color-option" data-color="#343a40" style="background-color: #343a40;" title="ダーク"></div>
+                    </div>
+                    <input type="hidden" name="color" id="color-input" value="{{ form.instance.color|default:'#6c757d' }}">
+                    <div class="form-text">タグの識別色を選択してください。</div>
+                </div>
+                
+                <div class="mb-4">
+                    <div class="form-check form-switch">
+                        {{ form.is_active }}
+                        <label class="form-check-label" for="{{ form.is_active.id_for_label }}">
+                            有効
+                        </label>
+                    </div>
+                    {% if form.is_active.errors %}
+                    <div class="text-danger small mt-1">{{ form.is_active.errors }}</div>
+                    {% endif %}
+                    <div class="form-text">無効にすると新しい機種で選択できなくなります。</div>
+                </div>
+                
+                <!-- プレビュー -->
+                <div class="preview-card mb-4">
+                    <h6>プレビュー</h6>
+                    <span id="preview-badge" class="badge fs-6 px-3 py-2" style="background-color: #6c757d; color: white;">
+                        <i class="bi bi-tag me-1"></i>
+                        <span id="preview-name">タグ名</span>
+                    </span>
+                    <div class="mt-2 small text-muted" id="preview-description">
+                        説明がここに表示されます
+                    </div>
+                </div>
+                
+                <!-- ボタン -->
+                <div class="d-grid gap-2">
+                    <button type="submit" class="btn btn-success btn-lg">
+                        <i class="bi bi-check-circle me-2"></i>
+                        {% if form.instance.pk %}更新{% else %}作成{% endif %}
+                    </button>
+                    <a href="{% url 'production:part_list' %}" class="btn btn-outline-secondary">
+                        <i class="bi bi-x-circle me-2"></i>キャンセル
+                    </a>
+                </div>
+            </div>
+        </form>
+        
+        <!-- 既存タグ一覧 -->
+        {% if existing_tags %}
+        <div class="mt-5">
+            <h5><i class="bi bi-tags me-2"></i>既存タグ</h5>
+            <div class="existing-tags">
+                <div class="row">
+                    {% for tag in existing_tags %}
+                    <div class="col-md-6 mb-2">
+                        <div class="card tag-item">
+                            <div class="card-body py-2">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <span class="badge me-2" style="background-color: {{ tag.color|default:'#6c757d' }}; color: white;">
+                                            <i class="bi bi-tag me-1"></i>{{ tag.name }}
+                                        </span>
+                                        {% if not tag.is_active %}
+                                        <span class="badge bg-secondary">無効</span>
+                                        {% endif %}
+                                    </div>
+                                    <div>
+                                        <small class="text-muted">{{ tag.part_count }}機種</small>
+                                    </div>
+                                </div>
+                                {% if tag.description %}
+                                <div class="mt-1">
+                                    <small class="text-muted">{{ tag.description|truncatewords:8 }}</small>
+                                </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        {% endif %}
+        
+        <!-- タグ使用例 -->
+        <div class="mt-5">
+            <h5><i class="bi bi-lightbulb me-2"></i>タグ使用例</h5>
+            <div class="row">
+                <div class="col-md-4 mb-3">
+                    <div class="card">
+                        <div class="card-body text-center">
+                            <i class="bi bi-gear fs-1 text-primary mb-2"></i>
+                            <h6>機械タイプ</h6>
+                            <div class="d-flex flex-wrap justify-content-center gap-1">
+                                <span class="badge bg-primary">射出成形</span>
+                                <span class="badge bg-primary">プレス</span>
+                                <span class="badge bg-primary">切削</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4 mb-3">
+                    <div class="card">
+                        <div class="card-body text-center">
+                            <i class="bi bi-speedometer2 fs-1 text-success mb-2"></i>
+                            <h6>生産速度</h6>
+                            <div class="d-flex flex-wrap justify-content-center gap-1">
+                                <span class="badge bg-success">高速</span>
+                                <span class="badge bg-warning">中速</span>
+                                <span class="badge bg-secondary">低速</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4 mb-3">
+                    <div class="card">
+                        <div class="card-body text-center">
+                            <i class="bi bi-exclamation-triangle fs-1 text-warning mb-2"></i>
+                            <h6>注意レベル</h6>
+                            <div class="d-flex flex-wrap justify-content-center gap-1">
+                                <span class="badge bg-danger">要注意</span>
+                                <span class="badge bg-warning">注意</span>
+                                <span class="badge bg-info">標準</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const nameInput = document.getElementById('{{ form.name.id_for_label }}');
+    const descriptionInput = document.getElementById('{{ form.description.id_for_label }}');
+    const colorInput = document.getElementById('color-input');
+    const colorOptions = document.querySelectorAll('.color-option');
+    
+    // 初期カラー設定
+    const initialColor = colorInput.value || '#6c757d';
+    setSelectedColor(initialColor);
+    
+    // カラー選択
+    colorOptions.forEach(option => {
+        option.addEventListener('click', function() {
+            const color = this.dataset.color;
+            setSelectedColor(color);
+            colorInput.value = color;
+            updatePreview();
+        });
+    });
+    
+    // 入力変更時のプレビュー更新
+    nameInput.addEventListener('input', updatePreview);
+    descriptionInput.addEventListener('input', updatePreview);
+    
+    function setSelectedColor(color) {
+        colorOptions.forEach(option => {
+            option.classList.remove('selected');
+            if (option.dataset.color === color) {
+                option.classList.add('selected');
+            }
+        });
+    }
+    
+    function updatePreview() {
+        const name = nameInput.value.trim() || 'タグ名';
+        const description = descriptionInput.value.trim() || '説明がここに表示されます';
+        const color = colorInput.value || '#6c757d';
+        
+        document.getElementById('preview-name').textContent = name;
+        document.getElementById('preview-description').textContent = description;
+        document.getElementById('preview-badge').style.backgroundColor = color;
+        
+        // テキストカラーを自動調整
+        const rgb = hexToRgb(color);
+        const brightness = (rgb.r * 299 + rgb.g * 587 + rgb.b * 114) / 1000;
+        document.getElementById('preview-badge').style.color = brightness > 128 ? '#000' : '#fff';
+    }
+    
+    function hexToRgb(hex) {
+        const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+        return result ? {
+            r: parseInt(result[1], 16),
+            g: parseInt(result[2], 16),
+            b: parseInt(result[3], 16)
+        } : null;
+    }
+    
+    // 初期プレビュー更新
+    updatePreview();
+    
+    // フォーム送信前の確認
+    document.getElementById('tagForm').addEventListener('submit', function(e) {
+        const name = nameInput.value.trim();
+        if (!name) {
+            e.preventDefault();
+            alert('タグ名を入力してください。');
+            nameInput.focus();
+            return false;
+        }
+        
+        // 重複チェック（既存タグとの比較）
+        const existingTags = Array.from(document.querySelectorAll('.existing-tags .badge')).map(badge => 
+            badge.textContent.trim().replace('🏷️', '').toLowerCase()
+        );
+        
+        if (existingTags.includes(name.toLowerCase()) && !{{ form.instance.pk|default:'false' }}) {
+            e.preventDefault();
+            alert('同じ名前のタグが既に存在します。');
+            nameInput.focus();
+            return false;
+        }
+    });
+    
+    // タグアイテムのホバー効果
+    document.querySelectorAll('.tag-item').forEach(item => {
+        item.addEventListener('mouseenter', function() {
+            this.style.transform = 'translateY(-2px)';
+        });
+        
+        item.addEventListener('mouseleave', function() {
+            this.style.transform = 'translateY(0)';
+        });
+    });
+});
+</script>
+{% endblock %} 

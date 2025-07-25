@@ -1,0 +1,790 @@
+{% extends 'base.html' %}
+{% load static %}
+{% load math_filters %}
+
+{% block title %}週別分析 - {{ line.name }}{% endblock %}
+
+{% block extra_css %}
+<style>
+.chart-container {
+    position: relative;
+    height: 400px;
+    margin-bottom: 2rem;
+}
+
+.stats-card {
+    background: linear-gradient(135deg, var(--bs-primary-bg-subtle), var(--bs-info-bg-subtle));
+    border: none;
+    transition: all 0.3s ease;
+}
+
+.stats-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+.metric-value {
+    font-size: 2rem;
+    font-weight: bold;
+}
+
+.trend-indicator {
+    font-size: 0.875rem;
+    padding: 0.25rem 0.5rem;
+    border-radius: 12px;
+}
+
+.trend-up {
+    background: var(--bs-success-bg-subtle);
+    color: var(--bs-success-text-emphasis);
+}
+
+.trend-down {
+    background: var(--bs-danger-bg-subtle);
+    color: var(--bs-danger-text-emphasis);
+}
+
+.trend-neutral {
+    background: var(--bs-secondary-bg-subtle);
+    color: var(--bs-secondary-text-emphasis);
+}
+
+.week-selector {
+    background: var(--bs-light);
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 2rem;
+}
+
+.chart-controls {
+    background: var(--bs-light);
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+}
+
+.data-table {
+    font-size: 0.875rem;
+}
+
+.calendar-heatmap {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 4px;
+    padding: 1rem;
+    background: var(--bs-light);
+    border-radius: 8px;
+}
+
+.calendar-day {
+    aspect-ratio: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.875rem;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    background-color: #f3f4f6;
+    color: var(--bs-dark);
+    font-weight: 500;
+}
+
+.calendar-day.other-month {
+    opacity: 0.3;
+    background-color: #f3f4f6 !important;
+}
+
+.calendar-header {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 4px;
+    margin-bottom: 4px;
+    text-align: center;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--bs-dark);
+}
+
+.calendar-legend {
+    display: flex;
+    justify-content: center;
+    gap: 1rem;
+    margin-top: 1rem;
+    font-size: 0.75rem;
+}
+
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.legend-color {
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+}
+
+.fullscreen-button {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    z-index: 10;
+}
+
+@media (max-width: 768px) {
+    .chart-container {
+        height: 300px;
+    }
+    
+    .metric-value {
+        font-size: 1.5rem;
+    }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <!-- ヘッダー -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <h2 class="mb-1">
+                        <i class="bi bi-calendar-week me-2"></i>週別分析
+                    </h2>
+                    <p class="text-muted mb-0">
+                        {{ line.name }} - {{ year }}年第{{ week_num }}週（{{ week_dates.0|date:"n/j" }}～{{ week_dates.6|date:"n/j" }}）
+                    </p>
+                </div>
+                <div class="d-flex gap-2">
+                    <a href="{% url 'production:monthly_graph' line.id %}" class="btn btn-outline-info">
+                        <i class="bi bi-calendar-month me-2"></i>月別分析
+                    </a>
+                    <a href="{% url 'production:dashboard' line.id 'today' %}" class="btn btn-outline-primary">
+                        <i class="bi bi-speedometer2 me-2"></i>ダッシュボード
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 週選択 -->
+    <div class="week-selector">
+        <form method="get" id="week-form" class="row g-3 align-items-end">
+            <div class="col-md-3">
+                <label class="form-label">週選択</label>
+                <input type="week" class="form-control" name="week" 
+                    value="{{ year }}-W{{ week_num|stringformat:'02d' }}"
+                    id="week-selector" onchange="this.form.submit()">
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">機種フィルター</label>
+                <select class="form-select" name="part" onchange="this.form.submit()">
+                    <option value="">全機種</option>
+                    {% for part in available_parts %}
+                    <option value="{{ part.id }}" {% if request.GET.part == part.id|stringformat:"s" %}selected{% endif %}>
+                        {{ part.name }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2">
+                <button type="submit" class="btn btn-primary">
+                    <i class="bi bi-search"></i> 表示
+                </button>
+            </div>
+            <div class="col-md-4 text-end">
+                <div class="btn-group" role="group">
+                    <button type="button" class="btn btn-outline-secondary" onclick="changeWeek(-1)">
+                        <i class="bi bi-chevron-left"></i> 前週
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary" onclick="changeWeek(1)">
+                        次週 <i class="bi bi-chevron-right"></i>
+                    </button>
+                </div>
+            </div>
+        </form>
+    </div>
+
+    <!-- 週間サマリー -->
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="card stats-card text-center">
+                <div class="card-body">
+                    <div class="metric-value text-primary">{{ weekly_stats.total_planned }}</div>
+                    <p class="text-muted mb-1">計画数量</p>
+                    <div class="trend-indicator trend-{{ weekly_stats.planned_trend }}">
+                        <i class="bi bi-{% if weekly_stats.planned_trend == 'up' %}arrow-up{% elif weekly_stats.planned_trend == 'down' %}arrow-down{% else %}dash{% endif %}"></i>
+                        {{ weekly_stats.planned_change|default:0 }}%
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card stats-card text-center">
+                <div class="card-body">
+                    <div class="metric-value text-success">{{ weekly_stats.total_actual }}</div>
+                    <p class="text-muted mb-1">実績数量</p>
+                    <div class="trend-indicator trend-{{ weekly_stats.actual_trend }}">
+                        <i class="bi bi-{% if weekly_stats.actual_trend == 'up' %}arrow-up{% elif weekly_stats.actual_trend == 'down' %}arrow-down{% else %}dash{% endif %}"></i>
+                        {{ weekly_stats.actual_change|default:0 }}%
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card stats-card text-center">
+                <div class="card-body">
+                    <div class="metric-value text-info">{{ weekly_stats.achievement_rate|floatformat:1 }}%</div>
+                    <p class="text-muted mb-1">達成率</p>
+                    <div class="trend-indicator trend-{{ weekly_stats.achievement_trend }}">
+                        <i class="bi bi-{% if weekly_stats.achievement_trend == 'up' %}arrow-up{% elif weekly_stats.achievement_trend == 'down' %}arrow-down{% else %}dash{% endif %}"></i>
+                        {{ weekly_stats.achievement_change|default:0|floatformat:1 }}pt
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card stats-card text-center">
+                <div class="card-body">
+                    <div class="metric-value text-warning">{{ weekly_stats.working_days }}</div>
+                    <p class="text-muted mb-1">稼働日数</p>
+                    <div class="trend-indicator trend-neutral">
+                        <i class="bi bi-calendar"></i>
+                        {{ weekly_stats.total_days }}日中
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- チャート制御 -->
+    <div class="chart-controls">
+        <div class="row align-items-center">
+            <div class="col-md-6">
+                <div class="btn-group" role="group" id="chart-type-selector">
+                    <input type="radio" class="btn-check" name="chartType" id="chart-bar" value="bar" checked>
+                    <label class="btn btn-outline-primary" for="chart-bar">
+                        <i class="bi bi-bar-chart"></i> 棒グラフ
+                    </label>
+                    
+                    <input type="radio" class="btn-check" name="chartType" id="chart-line" value="line">
+                    <label class="btn btn-outline-primary" for="chart-line">
+                        <i class="bi bi-graph-up"></i> 線グラフ
+                    </label>
+                    
+                    <input type="radio" class="btn-check" name="chartType" id="chart-area" value="area">
+                    <label class="btn btn-outline-primary" for="chart-area">
+                        <i class="bi bi-graph-up-arrow"></i> エリア
+                    </label>
+                </div>
+            </div>
+            <div class="col-md-6 text-end">
+                <div class="form-check form-switch d-inline-block me-3">
+                    <input class="form-check-input" type="checkbox" id="show-target" checked>
+                    <label class="form-check-label" for="show-target">目標線表示</label>
+                </div>
+                <button type="button" class="btn btn-outline-secondary" onclick="exportChart()">
+                    <i class="bi bi-download"></i> エクスポート
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- メインチャートとヒートマップ -->
+    <div class="row">
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">
+                        <i class="bi bi-graph-up me-2"></i>日別 計画・実績推移
+                    </h5>
+                    <button type="button" class="btn btn-sm btn-outline-secondary fullscreen-button" onclick="toggleFullscreen('weeklyChart')">
+                        <i class="bi bi-arrows-fullscreen"></i>
+                    </button>
+                </div>
+                <div class="card-body">
+                    <div class="chart-container">
+                        <canvas id="weeklyChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="bi bi-calendar3 me-2"></i>週間達成率カレンダー
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="calendar-header">
+                        <div>月</div>
+                        <div>火</div>
+                        <div>水</div>
+                        <div>木</div>
+                        <div>金</div>
+                        <div>土</div>
+                        <div>日</div>
+                    </div>
+                    <div id="calendar-heatmap" class="calendar-heatmap">
+                        {% for day in week_dates %}
+                            <div class="calendar-day" 
+                                 data-date="{{ day|date:'Y-m-d' }}"
+                                 data-planned="{{ chart_data.planned|index:forloop.counter0 }}"
+                                 data-actual="{{ chart_data.actual|index:forloop.counter0 }}">
+                                {{ day|date:"j" }}
+                            </div>
+                        {% endfor %}
+                    </div>
+                    <div class="calendar-legend">
+                        <div class="legend-item">
+                            <div class="legend-color" style="background-color: #dbeafe;"></div>
+                            <span>100%以上</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-color" style="background-color: #dcfce7;"></div>
+                            <span>80-99%</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-color" style="background-color: #fef3c7;"></div>
+                            <span>80%未満</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-color" style="background-color: #f3f4f6;"></div>
+                            <span>データなし</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 詳細データテーブル -->
+    <div class="row mt-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">
+                        <i class="bi bi-table me-2"></i>詳細データ
+                    </h5>
+                    <button type="button" class="btn btn-sm btn-outline-primary" onclick="exportTable()">
+                        <i class="bi bi-file-earmark-excel"></i> Excel出力
+                    </button>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-striped data-table" id="weekly-data-table">
+                            <thead>
+                                <tr>
+                                    <th>日付</th>
+                                    <th>曜日</th>
+                                    <th>計画数量</th>
+                                    <th>実績数量</th>
+                                    <th>達成率</th>
+                                    <th>差異</th>
+                                    <th>稼働時間</th>
+                                    <th>平均PPH</th>
+                                    <th>機種数</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for day_data in daily_data %}
+                                <tr>
+                                    <td>{{ day_data.date|date:"m/d" }}</td>
+                                    <td>
+                                        <span class="badge bg-{% if day_data.is_weekend %}secondary{% else %}primary{% endif %}">
+                                            {{ day_data.date|date:"D" }}
+                                        </span>
+                                    </td>
+                                    <td class="text-end">{{ day_data.planned_quantity|default:0 }}</td>
+                                    <td class="text-end">{{ day_data.actual_quantity|default:0 }}</td>
+                                    <td class="text-end">
+                                        <span class="badge bg-{% if day_data.achievement_rate >= 100 %}success{% elif day_data.achievement_rate >= 80 %}warning{% else %}danger{% endif %}">
+                                            {{ day_data.achievement_rate|floatformat:1 }}%
+                                        </span>
+                                    </td>
+                                    <td class="text-end {% if day_data.variance >= 0 %}text-success{% else %}text-danger{% endif %}">
+                                        {{ day_data.variance|floatformat:0|add:"+"|default:day_data.variance }}
+                                    </td>
+                                    <td class="text-end">{{ day_data.working_hours|floatformat:1 }}h</td>
+                                    <td class="text-end">{{ day_data.average_pph|floatformat:1 }}</td>
+                                    <td class="text-end">{{ day_data.part_count }}</td>
+                                </tr>
+                                {% empty %}
+                                <tr>
+                                    <td colspan="9" class="text-center text-muted">データがありません</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                            <tfoot class="table-secondary">
+                                <tr>
+                                    <th colspan="2">合計/平均</th>
+                                    <th class="text-end">{{ weekly_stats.total_planned }}</th>
+                                    <th class="text-end">{{ weekly_stats.total_actual }}</th>
+                                    <th class="text-end">{{ weekly_stats.achievement_rate|floatformat:1 }}%</th>
+                                    <th class="text-end">{{ weekly_stats.total_variance|floatformat:0 }}</th>
+                                    <th class="text-end">{{ weekly_stats.total_working_hours|floatformat:1 }}h</th>
+                                    <th class="text-end">{{ weekly_stats.average_pph|floatformat:1 }}</th>
+                                    <th class="text-end">-</th>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 機種別分析 -->
+    {% if part_analysis %}
+    <div class="row mt-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="bi bi-pie-chart me-2"></i>機種別分析
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        {% for part in part_analysis %}
+                        <div class="col-md-4 mb-3">
+                            <div class="card">
+                                <div class="card-body">
+                                    <h6 class="card-title">{{ part.name }}</h6>
+                                    <div class="row text-center">
+                                        <div class="col-4">
+                                            <div class="fw-bold text-primary">{{ part.planned }}</div>
+                                            <small class="text-muted">計画</small>
+                                        </div>
+                                        <div class="col-4">
+                                            <div class="fw-bold text-success">{{ part.actual }}</div>
+                                            <small class="text-muted">実績</small>
+                                        </div>
+                                        <div class="col-4">
+                                            <div class="fw-bold text-info">{{ part.achievement_rate|floatformat:1 }}%</div>
+                                            <small class="text-muted">達成率</small>
+                                        </div>
+                                    </div>
+                                    <div class="progress mt-2" style="height: 6px;">
+                                        <div class="progress-bar bg-{% if part.achievement_rate >= 100 %}success{% elif part.achievement_rate >= 80 %}warning{% else %}danger{% endif %}" 
+                                             style="width: {{ part.achievement_rate|floatformat:1 }}%"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // グラフデータの初期化
+    const chartData = {{ chart_data_json|safe }};
+    let weeklyChart = null;
+    
+    // カレンダーヒートマップの初期化
+    initializeCalendarHeatmap();
+    
+    // グラフの初期化
+    if (document.getElementById('weeklyChart')) {
+        initializeChart();
+    }
+    
+    // チャートタイプ変更
+    document.querySelectorAll('input[name="chartType"]').forEach(radio => {
+        radio.addEventListener('change', function() {
+            updateChartType(this.value);
+        });
+    });
+    
+    // 目標線表示切り替え
+    document.getElementById('show-target').addEventListener('change', function() {
+        updateTargetLine(this.checked);
+    });
+    
+    function initializeChart() {
+        const ctx = document.getElementById('weeklyChart').getContext('2d');
+        
+        weeklyChart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: chartData.labels,
+                datasets: [{
+                    label: '計画数量',
+                    data: chartData.planned,
+                    backgroundColor: 'rgba(37, 99, 235, 0.7)',
+                    borderColor: 'rgba(37, 99, 235, 1)',
+                    borderWidth: 1,
+                    yAxisID: 'y'
+                }, {
+                    label: '実績数量',
+                    data: chartData.actual,
+                    backgroundColor: 'rgba(16, 185, 129, 0.7)',
+                    borderColor: 'rgba(16, 185, 129, 1)',
+                    borderWidth: 1,
+                    yAxisID: 'y'
+                }, {
+                    label: '累計計画',
+                    data: chartData.cumulative_planned || [],
+                    type: 'line',
+                    borderColor: 'rgba(139, 69, 19, 1)',
+                    backgroundColor: 'rgba(139, 69, 19, 0.1)',
+                    borderWidth: 2,
+                    fill: false,
+                    yAxisID: 'y1'
+                }, {
+                    label: '累計実績',
+                    data: chartData.cumulative_actual || [],
+                    type: 'line',
+                    borderColor: 'rgba(255, 140, 0, 1)',
+                    backgroundColor: 'rgba(255, 140, 0, 0.1)',
+                    borderWidth: 2,
+                    fill: false,
+                    yAxisID: 'y1'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: {
+                    mode: 'index',
+                    intersect: false,
+                },
+                plugins: {
+                    legend: {
+                        position: 'top',
+                    },
+                    title: {
+                        display: true,
+                        text: '週別 計画・実績推移'
+                    }
+                },
+                scales: {
+                    y: {
+                        type: 'linear',
+                        display: true,
+                        position: 'left',
+                        beginAtZero: true,
+                        ticks: {
+                            stepSize: 1
+                        },
+                        title: {
+                            display: true,
+                            text: '日別数量'
+                        }
+                    },
+                    y1: {
+                        type: 'linear',
+                        display: true,
+                        position: 'right',
+                        beginAtZero: true,
+                        grid: {
+                            drawOnChartArea: false,
+                        },
+                        title: {
+                            display: true,
+                            text: '累計数量'
+                        }
+                    }
+                }
+            }
+        });
+    }
+    
+    function updateChartType(type) {
+        weeklyChart.config.type = type;
+        
+        if (type === 'area') {
+            weeklyChart.config.type = 'line';
+            weeklyChart.data.datasets.forEach(dataset => {
+                dataset.fill = true;
+                dataset.backgroundColor = dataset.backgroundColor.replace('0.7', '0.3');
+            });
+        } else {
+            weeklyChart.data.datasets.forEach(dataset => {
+                dataset.fill = false;
+                if (type === 'bar') {
+                    dataset.backgroundColor = dataset.backgroundColor.replace('0.3', '0.7');
+                }
+            });
+        }
+        
+        weeklyChart.update();
+    }
+    
+    function updateTargetLine(show) {
+        if (show && chartData.target) {
+            if (!weeklyChart.data.datasets.find(d => d.label === '目標')) {
+                weeklyChart.data.datasets.push({
+                    label: '目標',
+                    data: chartData.target,
+                    type: 'line',
+                    borderColor: 'rgba(239, 68, 68, 1)',
+                    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                    borderWidth: 2,
+                    borderDash: [5, 5],
+                    fill: false
+                });
+            }
+        } else {
+            weeklyChart.data.datasets = weeklyChart.data.datasets.filter(d => d.label !== '目標');
+        }
+        weeklyChart.update();
+    }
+    
+    // 週変更
+    window.changeWeek = function(direction) {
+        const weekInput = document.getElementById('week-selector');
+        const currentValue = weekInput.value;
+        
+        // 現在の週が設定されていない場合は現在の日付から週を計算
+        if (!currentValue) {
+            const now = new Date();
+            const year = now.getFullYear();
+            const weekNum = getISOWeek(now);
+            weekInput.value = `${year}-W${String(weekNum).padStart(2, '0')}`;
+        }
+        
+        // 週を解析
+        const [year, week] = weekInput.value.split('-W');
+        const weekNum = parseInt(week) + direction;
+        
+        // 年をまたぐ場合の処理
+        let targetYear = parseInt(year);
+        let targetWeek = weekNum;
+        
+        if (weekNum > 52) {
+            targetYear++;
+            targetWeek = 1;
+        } else if (weekNum < 1) {
+            targetYear--;
+            targetWeek = 52;
+        }
+        
+        weekInput.value = `${targetYear}-W${String(targetWeek).padStart(2, '0')}`;
+        
+        // フォーム内の他のパラメータを保持して送信
+        const form = document.getElementById('week-form');
+        form.submit();
+    };
+    
+    function getISOWeek(date) {
+        const d = new Date(date);
+        d.setHours(0, 0, 0, 0);
+        d.setDate(d.getDate() + 4 - (d.getDay() || 7));
+        const yearStart = new Date(d.getFullYear(), 0, 1);
+        return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+    }
+    
+    function initializeCalendarHeatmap() {
+        const calendarDays = document.querySelectorAll('.calendar-day');
+        calendarDays.forEach(day => {
+            const planned = parseInt(day.dataset.planned) || 0;
+            const actual = parseInt(day.dataset.actual) || 0;
+            const rate = planned > 0 ? (actual / planned * 100) : 0;
+            
+            // 達成率に基づいて色を設定
+            let color;
+            if (rate >= 100) {
+                color = 'rgba(34, 197, 94, 0.2)';  // 緑（100%以上）
+            } else if (rate >= 80) {
+                color = 'rgba(234, 179, 8, 0.2)';  // 黄（80-99%）
+            } else if (rate > 0) {
+                color = 'rgba(239, 68, 68, 0.2)';  // 赤（1-79%）
+            } else {
+                color = '#f3f4f6';  // デフォルト（0%）
+            }
+            
+            day.style.backgroundColor = color;
+            
+            // ツールチップ情報を追加
+            day.title = `計画: ${planned}\n実績: ${actual}\n達成率: ${rate.toFixed(1)}%`;
+        });
+    }
+
+    // フルスクリーン切り替え
+    window.toggleFullscreen = function(chartId) {
+        const chartContainer = document.getElementById(chartId).parentElement;
+        if (!document.fullscreenElement) {
+            chartContainer.requestFullscreen();
+            chartContainer.style.height = '100vh';
+            if (weeklyChart) {
+                weeklyChart.resize();
+            }
+        } else {
+            document.exitFullscreen();
+            chartContainer.style.height = '400px';
+            if (weeklyChart) {
+                weeklyChart.resize();
+            }
+        }
+    };
+
+    // エクスポート機能
+    window.exportChart = function() {
+        const link = document.createElement('a');
+        link.download = `週別分析_${encodeURIComponent('{{ line.name }}')}_${encodeURIComponent('{{ week_dates.0|date:"Y年n月j日" }}')}週.png`;
+        link.href = weeklyChart.toBase64Image();
+        link.click();
+    };
+
+    window.exportTable = function() {
+        const table = document.getElementById('weekly-data-table');
+        let csv = [];
+        
+        // ヘッダー行
+        const headers = [];
+        table.querySelectorAll('thead th').forEach(th => {
+            headers.push(th.textContent.trim());
+        });
+        csv.push(headers.join(','));
+        
+        // データ行
+        table.querySelectorAll('tbody tr').forEach(tr => {
+            const row = [];
+            tr.querySelectorAll('td').forEach(td => {
+                // バッジ要素がある場合はその中身を取得
+                const badge = td.querySelector('.badge');
+                let value = badge ? badge.textContent.trim() : td.textContent.trim();
+                // カンマを含む場合はダブルクォートで囲む
+                if (value.includes(',')) {
+                    value = `"${value}"`;
+                }
+                row.push(value);
+            });
+            csv.push(row.join(','));
+        });
+        
+        // フッター行
+        const footer = [];
+        table.querySelectorAll('tfoot td, tfoot th').forEach(cell => {
+            footer.push(cell.textContent.trim());
+        });
+        csv.push(footer.join(','));
+        
+        // BOMを追加してExcelで文字化けを防ぐ
+        const bom = new Uint8Array([0xEF, 0xBB, 0xBF]);
+        const blob = new Blob([bom, csv.join('\n')], { type: 'text/csv;charset=utf-8' });
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `週別分析_${encodeURIComponent('{{ line.name }}')}_${encodeURIComponent('{{ week_dates.0|date:"Y年n月j日" }}')}週.csv`;
+        link.click();
+        window.URL.revokeObjectURL(url);
+    };
+});
+</script>
+{% endblock %} 

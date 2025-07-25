@@ -1,0 +1,150 @@
+services:
+  # PostgreSQLデータベース
+  db:
+    image: postgres:15-alpine
+    container_name: sandaproject_db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis
+  redis:
+    image: redis:7-alpine
+    container_name: sandaproject_redis
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Oracle XE Database  
+  oracle:
+    image: gvenzl/oracle-xe:21-slim-faststart
+    container_name: sandaproject_oracle
+    environment:
+      # 固定パスワードで確実な接続を実現
+      ORACLE_PASSWORD: "oracle123"
+      ORACLE_DATABASE: "XEPDB1"
+      ORACLE_CHARACTERSET: "AL32UTF8"
+    volumes:
+      - oracle_data:/opt/oracle/oradata  # 名前付きボリュームで権限問題を回避
+    ports:
+      - "1521:1521"
+      - "5500:5500"
+    shm_size: 2g
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "healthcheck.sh"]
+      interval: 30s
+      timeout: 15s
+      retries: 20
+      start_period: 120s  # Oracle起動時間を適切に設定
+
+  # Django Webアプリケーション
+  web:
+    build: .
+    container_name: sandaproject_web
+    command: web
+    volumes:
+      - .:/app
+      - static_volume:/app/staticfiles
+      - media_volume:/app/media
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      # oracle: Oracleは任意の依存関係として削除（webサービスの高速起動のため）
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Nginx リバースプロキシ
+  nginx:
+    image: nginx:alpine
+    container_name: sandaproject_nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - static_volume:/app/staticfiles:ro
+      - media_volume:/app/media:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - web
+    healthcheck:
+      test: ["CMD", "nginx", "-t"]  # 設定ファイルの構文チェックに変更
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Celery Worker (必要に応じて)
+  worker:
+    build: .
+    container_name: sandaproject_worker
+    command: worker
+    volumes:
+      - .:/app
+      - media_volume:/app/media
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      # oracle: Oracleは任意の依存関係として削除（workerサービスの高速起動のため）
+    deploy:
+      replicas: 0  # 必要時にスケールアップ
+
+  # Adminer Database Admin Tool
+  adminer:
+    image: adminer:latest
+    container_name: sandaproject_adminer
+    ports:
+      - "8080:8080"
+    environment:
+      ADMINER_DEFAULT_SERVER: db
+    depends_on:
+      - db
+      - oracle
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  oracle_data:
+    driver: local
+  static_volume:
+    driver: local
+  media_volume:
+    driver: local
+
+networks:
+  default:
+    name: sandaproject_network
