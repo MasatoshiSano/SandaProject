@@ -18,7 +18,12 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         # 1) 既存データ削除
         print('既存データを削除中...')
-        Result.objects.all().delete()
+        # テーブルが存在しない場合はスキップ
+        try:
+            Result.objects.using('default').all().delete()
+        except Exception as e:
+            print(f'Result削除時エラー（スキップ）: {e}')
+        
         Plan.objects.all().delete()
         WorkCalendar.objects.all().delete()
         PartChangeDowntime.objects.all().delete()

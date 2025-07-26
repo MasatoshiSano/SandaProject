@@ -8,8 +8,55 @@ import jpholiday
 from collections import defaultdict
 import calendar
 import logging
+import hashlib
 
 logger = logging.getLogger(__name__)
+
+
+def generate_part_color(part_id, part_name=None):
+    """機種IDベースで一意な色を生成する"""
+    # 機種IDと名前を組み合わせてハッシュを生成
+    hash_input = f"{part_id}_{part_name or ''}"
+    hash_object = hashlib.md5(hash_input.encode())
+    hex_hash = hash_object.hexdigest()
+    
+    # HSL色空間で色を生成（彩度・明度を固定して見やすい色にする）
+    hue = int(hex_hash[:3], 16) % 360  # 0-359の色相
+    saturation = 65 + (int(hex_hash[3:5], 16) % 25)  # 65-89%の彩度
+    lightness = 45 + (int(hex_hash[5:7], 16) % 20)   # 45-64%の明度
+    
+    # HSLをRGBに変換
+    def hsl_to_rgb(h, s, l):
+        h = h / 360
+        s = s / 100
+        l = l / 100
+        
+        if s == 0:
+            r = g = b = l
+        else:
+            def hue_to_rgb(p, q, t):
+                if t < 0:
+                    t += 1
+                if t > 1:
+                    t -= 1
+                if t < 1/6:
+                    return p + (q - p) * 6 * t
+                if t < 1/2:
+                    return q
+                if t < 2/3:
+                    return p + (q - p) * (2/3 - t) * 6
+                return p
+            
+            q = l * (1 + s) if l < 0.5 else l + s - l * s
+            p = 2 * l - q
+            r = hue_to_rgb(p, q, h + 1/3)
+            g = hue_to_rgb(p, q, h)
+            b = hue_to_rgb(p, q, h - 1/3)
+        
+        return int(r * 255), int(g * 255), int(b * 255)
+    
+    r, g, b = hsl_to_rgb(hue, saturation, lightness)
+    return f"#{r:02x}{g:02x}{b:02x}"
 
 
 def get_dashboard_data(line_id, date_str):
@@ -49,7 +96,7 @@ def get_dashboard_data(line_id, date_str):
                 'planned': 0,
                 'actual': 0,
                 'achievement_rate': 0,
-                'color': plan.part.category.color,
+                'color': generate_part_color(plan.part.id, plan.part.name),
             }
         part_data[pname]['planned'] += plan.planned_quantity
 
@@ -60,7 +107,7 @@ def get_dashboard_data(line_id, date_str):
         if pname not in part_data:
             try:
                 part_obj = Part.objects.get(name=pname)
-                color = part_obj.category.color
+                color = generate_part_color(part_obj.id, part_obj.name)
             except Part.DoesNotExist:
                 color = '#000000'
             part_data[pname] = {
@@ -148,7 +195,7 @@ def generate_hourly_data(line_id, date, plans, results):
             if part_id not in hour_data['parts']:
                 hour_data['parts'][part_id] = {
                     'name': part.name,
-                    'color': part.category.color,
+                    'color': generate_part_color(part.id, part.name),
                     'planned': 0,
                     'actual': 0,
                 }
@@ -204,7 +251,7 @@ def generate_hourly_data(line_id, date, plans, results):
                     
                     hour_data['parts'][part_id] = {
                         'name': part.name,
-                        'color': part.category.color,
+                        'color': generate_part_color(part.id, part.name),
                         'planned': 0,
                         'actual': part_results,
                     }
@@ -269,7 +316,7 @@ def generate_hourly_data_machine_based(line_id, date, plans, active_machines, re
             if pid not in hour_record['parts']:
                 hour_record['parts'][pid] = {
                     'name':    php.part.name,
-                    'color':   php.part.category.color,
+                    'color':   generate_part_color(php.part.id, php.part.name),
                     'planned': 0,
                     'actual':  0,
                 }
@@ -302,7 +349,7 @@ def generate_hourly_data_machine_based(line_id, date, plans, active_machines, re
             if pid not in hour_record['parts']:
                 hour_record['parts'][pid] = {
                     'name':    part_obj.name,
-                    'color':   part_obj.category.color,
+                    'color':   generate_part_color(part_obj.id, part_obj.name),
                     'planned': 0,
                     'actual':  0,
                 }

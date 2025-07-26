@@ -186,9 +186,9 @@ class Result(models.Model):
     quantity = models.PositiveIntegerField('数量', default=1, validators=[MinValueValidator(1)])
     
     # 実績は計画に依存しない独立したデータ（文字列として保存）
-    line = models.CharField('ライン', max_length=100, default='', blank=True)
-    machine = models.CharField('設備', max_length=100, default='', blank=True)  
-    part = models.CharField('機種', max_length=100, default='', blank=True)
+    line = models.CharField('ライン', max_length=100, default='', blank=True, null=True)
+    machine = models.CharField('設備', max_length=100, default='', blank=True, null=True)  
+    part = models.CharField('機種', max_length=100, default='', blank=True, null=True)
     
     timestamp = models.DateTimeField('タイムスタンプ')
     serial_number = models.CharField('シリアル番号', max_length=100)
