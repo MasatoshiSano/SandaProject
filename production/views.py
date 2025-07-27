@@ -447,6 +447,15 @@ class ResultListView(LineAccessMixin, ListView):
         # 現在の日付をdate_strとして設定（ナビゲーションメニュー用）
         date_str = timezone.now().date().strftime('%Y-%m-%d')
         
+        # 実績にpart_categoryを追加
+        results = context['results']
+        for result in results:
+            try:
+                part = Part.objects.get(name=result.part)
+                result.part_category = part.category.name
+            except Part.DoesNotExist:
+                result.part_category = None
+        
         context.update({
             'line': line,
             'date_str': date_str,
