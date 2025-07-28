@@ -555,99 +555,102 @@
                                     </div>
                                 </td>
                             </tr>
-                            
-                            <!-- テーブル表示用詳細モーダル -->
-                            <div class="modal fade" id="tableDetailModal{{ part.pk }}" tabindex="-1">
-                                <div class="modal-dialog modal-lg">
-                                    <div class="modal-content">
-                                        <div class="modal-header">
-                                            <h5 class="modal-title">機種詳細 - {{ part.name }}</h5>
-                                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                                        </div>
-                                        <div class="modal-body">
-                                            <div class="row">
-                                                <div class="col-md-6">
-                                                    <h6>基本情報</h6>
-                                                    <ul class="list-unstyled">
-                                                        <li><strong>機種名:</strong> {{ part.name }}</li>
-                                                        {% if part.part_number %}
-                                                        <li><strong>品番:</strong> {{ part.part_number }}</li>
-                                                        {% endif %}
-                                                        <li><strong>カテゴリ:</strong> {{ part.category.name|default:"-" }}</li>
-                                                        <li><strong>状態:</strong> {% if part.is_active %}有効{% else %}無効{% endif %}</li>
-                                                    </ul>
-                                                </div>
-                                                <div class="col-md-6">
-                                                    <h6>生産情報</h6>
-                                                    <ul class="list-unstyled">
-                                                        <li><strong>目標PPH:</strong> {{ part.target_pph }}</li>
-                                                        <li><strong>サイクルタイム:</strong> {{ part.cycle_time|floatformat:1 }}秒</li>
-                                                        <li><strong>作成日:</strong> {{ part.created_at|date:"Y/m/d" }}</li>
-                                                        <li><strong>更新日:</strong> {{ part.updated_at|date:"Y/m/d" }}</li>
-                                                    </ul>
-                                                </div>
-                                            </div>
-                                            
-                                            {% if part.description %}
-                                            <div class="mt-3">
-                                                <h6>説明</h6>
-                                                <div class="bg-light p-2 rounded">{{ part.description|linebreaks }}</div>
-                                            </div>
-                                            {% endif %}
-                                            
-                                            {% if part.tags.all %}
-                                            <div class="mt-3">
-                                                <h6>タグ</h6>
-                                                {% for tag in part.tags.all %}
-                                                <span class="badge bg-secondary me-1">{{ tag.name }}</span>
-                                                {% endfor %}
-                                            </div>
-                                            {% endif %}
-                                            
-                                            <!-- 最近の実績 -->
-                                            <div class="mt-3">
-                                                <h6>最近の実績 (直近5件)</h6>
-                                                <div class="table-responsive">
-                                                    <table class="table table-sm">
-                                                        <thead>
-                                                            <tr>
-                                                                <th>日付</th>
-                                                                <th>計画</th>
-                                                                <th>実績</th>
-                                                                <th>達成率</th>
-                                                            </tr>
-                                                        </thead>
-                                                        <tbody>
-                                                            {% for result in part.recent_results %}
-                                                            <tr>
-                                                                <td>{{ result.timestamp|date:"m/d" }}</td>
-                                                                <td>-</td>
-                                                                <td>{{ result.actual_quantity }}</td>
-                                                                <td>
-                                                                    <span class="badge bg-{% if result.achievement_rate >= 100 %}success{% elif result.achievement_rate >= 80 %}warning{% else %}danger{% endif %}">
-                                                                        {{ result.achievement_rate|floatformat:1 }}%
-                                                                    </span>
-                                                                </td>
-                                                            </tr>
-                                                            {% empty %}
-                                                            <tr>
-                                                                <td colspan="4" class="text-center text-muted">実績データなし</td>
-                                                            </tr>
-                                                            {% endfor %}
-                                                        </tbody>
-                                                    </table>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
                             {% endfor %}
                         </tbody>
                     </table>
                 </div>
             </div>
         </div>
+        
+        <!-- テーブル表示用詳細モーダル（テーブル外に移動） -->
+        {% for part in parts %}
+        <div class="modal fade" id="tableDetailModal{{ part.pk }}" tabindex="-1">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">機種詳細 - {{ part.name }}</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <h6>基本情報</h6>
+                                <ul class="list-unstyled">
+                                    <li><strong>機種名:</strong> {{ part.name }}</li>
+                                    {% if part.part_number %}
+                                    <li><strong>品番:</strong> {{ part.part_number }}</li>
+                                    {% endif %}
+                                    <li><strong>カテゴリ:</strong> {{ part.category.name|default:"-" }}</li>
+                                    <li><strong>状態:</strong> {% if part.is_active %}有効{% else %}無効{% endif %}</li>
+                                </ul>
+                            </div>
+                            <div class="col-md-6">
+                                <h6>生産情報</h6>
+                                <ul class="list-unstyled">
+                                    <li><strong>目標PPH:</strong> {{ part.target_pph }}</li>
+                                    <li><strong>サイクルタイム:</strong> {{ part.cycle_time|floatformat:1 }}秒</li>
+                                    <li><strong>作成日:</strong> {{ part.created_at|date:"Y/m/d" }}</li>
+                                    <li><strong>更新日:</strong> {{ part.updated_at|date:"Y/m/d" }}</li>
+                                </ul>
+                            </div>
+                        </div>
+                        
+                        {% if part.description %}
+                        <div class="mt-3">
+                            <h6>説明</h6>
+                            <div class="bg-light p-2 rounded">{{ part.description|linebreaks }}</div>
+                        </div>
+                        {% endif %}
+                        
+                        {% if part.tags.all %}
+                        <div class="mt-3">
+                            <h6>タグ</h6>
+                            {% for tag in part.tags.all %}
+                            <span class="badge bg-secondary me-1">{{ tag.name }}</span>
+                            {% endfor %}
+                        </div>
+                        {% endif %}
+                        
+                        <!-- 最近の実績 -->
+                        <div class="mt-3">
+                            <h6>最近の実績 (直近5件)</h6>
+                            <div class="table-responsive">
+                                <table class="table table-sm">
+                                    <thead>
+                                        <tr>
+                                            <th>日付</th>
+                                            <th>計画</th>
+                                            <th>実績</th>
+                                            <th>達成率</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for result in part.recent_results %}
+                                        <tr>
+                                            <td>{{ result.timestamp|date:"m/d" }}</td>
+                                            <td>-</td>
+                                            <td>{{ result.actual_quantity }}</td>
+                                            <td>
+                                                <span class="badge bg-{% if result.achievement_rate >= 100 %}success{% elif result.achievement_rate >= 80 %}warning{% else %}danger{% endif %}">
+                                                    {{ result.achievement_rate|floatformat:1 }}%
+                                                </span>
+                                            </td>
+                                        </tr>
+                                        {% empty %}
+                                        <tr>
+                                            <td colspan="4" class="text-center text-muted">実績データなし</td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+        
         {% else %}
         <div class="card">
             <div class="card-body text-center py-5">

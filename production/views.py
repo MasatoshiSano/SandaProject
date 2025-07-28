@@ -14,6 +14,8 @@ from datetime import datetime, date, timedelta
 import json
 from calendar import monthrange
 from django.views.decorators.http import require_POST
+from django.views.decorators.csrf import csrf_exempt
+from django.utils.decorators import method_decorator
 from django.template.loader import render_to_string
 
 from .models import (
@@ -827,39 +829,79 @@ class PlanInfoAPIView(LineAccessMixin, View):
 class PlanSequenceUpdateAPIView(LineAccessMixin, View):
     """計画順番更新API"""
     
-    def post(self, request, line_id, date_str):
+    def post(self, request, line_id, date):
+        import logging
+        logger = logging.getLogger(__name__)
+        
         try:
             import json
             from datetime import datetime
             
+            logger.info(f'PlanSequenceUpdateAPIView called: line_id={line_id}, date={date}')
+            logger.info(f'Request body: {request.body.decode()}')
+            
             data = json.loads(request.body)
             plan_orders = data.get('plan_orders', [])
             
+            logger.info(f'Parsed plan_orders: {plan_orders}')
+            
             # 日付の変換
             try:
-                date_obj = datetime.strptime(date_str, '%Y-%m-%d').date()
+                date_obj = datetime.strptime(date, '%Y-%m-%d').date()
             except ValueError:
                 return JsonResponse({'error': '無効な日付形式です。'}, status=400)
             
-            # 順番を更新
-            for order_data in plan_orders:
-                plan_id = order_data.get('id')
-                new_sequence = order_data.get('sequence')
+            # 順番を更新（一括更新でシグナルを回避）
+            from django.db import transaction
+            
+            with transaction.atomic():
+                # 計画IDとシーケンスのマッピングを作成
+                plan_ids = [order_data.get('id') for order_data in plan_orders if order_data.get('id')]
+                logger.info(f'Plan IDs to update: {plan_ids}')
                 
-                if plan_id and new_sequence:
-                    try:
-                        plan = Plan.objects.get(id=plan_id, line_id=line_id, date=date_obj)
-                        plan.sequence = new_sequence
-                        plan.save(update_fields=['sequence'])
-                    except Plan.DoesNotExist:
-                        continue
+                # 対象計画を取得
+                plans_to_update = Plan.objects.filter(
+                    id__in=plan_ids, 
+                    line_id=line_id, 
+                    date=date_obj
+                )
+                logger.info(f'Found {plans_to_update.count()} plans to update')
+                
+                # 生のSQLで一括更新（シグナルを回避）
+                from django.db import connection
+                
+                # 一時的に全計画のsequenceを大きな値に設定
+                with connection.cursor() as cursor:
+                    cursor.execute("""
+                        UPDATE production_plan 
+                        SET sequence = sequence + 10000 
+                        WHERE line_id = %s AND date = %s AND id IN %s
+                    """, [line_id, date_obj, tuple(plan_ids)])
+                    logger.info(f'Temporarily updated {cursor.rowcount} plans with offset')
+                
+                # 正しいsequence値に更新
+                for order_data in plan_orders:
+                    plan_id = order_data.get('id')
+                    new_sequence = order_data.get('sequence')
+                    
+                    if plan_id and new_sequence:
+                        with connection.cursor() as cursor:
+                            cursor.execute("""
+                                UPDATE production_plan 
+                                SET sequence = %s 
+                                WHERE id = %s AND line_id = %s AND date = %s
+                            """, [new_sequence, plan_id, line_id, date_obj])
+                            logger.info(f'Updated plan {plan_id} to sequence {new_sequence}')
             
             return JsonResponse({'success': True, 'message': '順番を更新しました。'})
         
         except json.JSONDecodeError:
             return JsonResponse({'error': '無効なJSONデータです。'}, status=400)
         except Exception as e:
-            return JsonResponse({'error': str(e)}, status=500)
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f'PlanSequenceUpdateAPIView error: {str(e)}', exc_info=True)
+            return JsonResponse({'error': f'サーバーエラーが発生しました: {str(e)}'}, status=500)
 
 
 class FeedbackListView(LoginRequiredMixin, ListView):

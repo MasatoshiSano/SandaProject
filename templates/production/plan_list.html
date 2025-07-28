@@ -62,6 +62,50 @@
     transition: all 0.3s ease;
 }
 
+/* 表示切り替えボタンのスタイル */
+.view-toggle-btn.active {
+    background-color: var(--bs-primary);
+    color: white;
+    border-color: var(--bs-primary);
+}
+
+.view-toggle-btn:hover {
+    background-color: var(--bs-secondary);
+    border-color: var(--bs-secondary);
+    color: white;
+}
+
+/* テーブル表示のスタイル */
+.table-hover tbody tr:hover {
+    background-color: var(--bs-primary-bg-subtle);
+}
+
+.table thead th {
+    border-bottom: 2px solid var(--bs-primary);
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 0.875rem;
+    letter-spacing: 0.5px;
+}
+
+/* テーブル表示でのドラッグハンドルのスタイル */
+#table-sortable-plans .drag-handle {
+    cursor: move;
+}
+
+#table-sortable-plans tr {
+    transition: all 0.3s ease;
+}
+
+#table-sortable-plans .sortable-ghost {
+    opacity: 0.4;
+}
+
+#table-sortable-plans .sortable-drag {
+    background: var(--bs-primary-bg-subtle);
+    color: var(--bs-primary);
+}
+
 @media (max-width: 768px) {
     .plan-card .row > div {
         margin-bottom: 0.5rem;
@@ -80,6 +124,14 @@
         flex-direction: column;
         align-items: flex-start !important;
         gap: 1rem;
+    }
+    
+    .view-toggle-btn span {
+        display: none;
+    }
+    
+    .btn-group .btn {
+        padding: 0.25rem 0.5rem;
     }
 }
 </style>
@@ -100,7 +152,17 @@
                         {{ line.name }}
                     </p>
                 </div>
-                <div class="d-flex gap-2">
+                <div class="d-flex gap-2 align-items-center">
+                    <!-- 表示切り替えボタン -->
+                    <div class="btn-group" role="group" aria-label="表示切り替え">
+                        <button type="button" class="btn btn-outline-secondary view-toggle-btn active" data-view="card">
+                            <i class="bi bi-grid-3x3-gap"></i> <span>カード</span>
+                        </button>
+                        <button type="button" class="btn btn-outline-secondary view-toggle-btn" data-view="table">
+                            <i class="bi bi-table"></i> <span>テーブル</span>
+                        </button>
+                    </div>
+                    <div class="vr"></div>
                     <a href="{% url 'production:plan_create' line.id date_str %}" class="btn btn-success">
                         <i class="bi bi-plus-circle me-2"></i>新規計画
                     </a>
@@ -215,10 +277,11 @@
         </div>
     </div>
 
-    <!-- 計画リスト -->
-    <div class="row">
-        <div class="col-12">
-            <div id="sortable-plans" class="row">
+    <!-- 計画リスト（カード表示） -->
+    <div id="card-view" class="view-content">
+        <div class="row">
+            <div class="col-12">
+                <div id="sortable-plans" class="row">
                 {% for plan in plans %}
                 <div class="col-lg-6 mb-3" data-plan-id="{{ plan.id }}" data-sequence="{{ plan.sequence }}">
                     <div class="card plan-card h-100">
@@ -323,8 +386,126 @@
             </div>
         </div>
         {% endfor %}
+                </div>
             </div>
         </div>
+    </div>
+    
+    <!-- 計画リスト（テーブル表示） -->
+    <div id="table-view" class="view-content" style="display: none;">
+        {% if plans %}
+        <div class="card">
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-hover table-striped align-middle">
+                        <thead class="table-dark">
+                            <tr>
+                                <th class="text-center">順番</th>
+                                <th>
+                                    <div class="d-flex align-items-center">
+                                        <i class="bi bi-gear me-2"></i>機種名
+                                    </div>
+                                </th>
+                                <th>機械</th>
+                                <th class="text-center">
+                                    <i class="bi bi-clock me-1"></i>開始時間
+                                </th>
+                                <th class="text-center">
+                                    <i class="bi bi-clock me-1"></i>終了時間
+                                </th>
+                                <th class="text-center">計画数量</th>
+                                <th class="text-center">実績数量</th>
+                                <th class="text-center">達成率</th>
+                                <th class="text-center">アクション</th>
+                            </tr>
+                        </thead>
+                        <tbody id="table-sortable-plans">
+                            {% for plan in plans %}
+                            <tr data-plan-id="{{ plan.id }}" data-sequence="{{ plan.sequence }}">
+                                <td class="text-center">
+                                    <div class="d-flex align-items-center justify-content-center">
+                                        <span class="badge bg-primary me-2">{{ plan.sequence }}</span>
+                                        <div class="drag-handle text-muted" style="cursor: move;">
+                                            <i class="bi bi-grip-vertical"></i>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td>
+                                    <div class="d-flex align-items-center">
+                                        <div class="flex-grow-1">
+                                            <div class="fw-bold">{{ plan.part.name }}</div>
+                                            {% if plan.part.part_number %}
+                                            <small class="text-muted">{{ plan.part.part_number }}</small>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                </td>
+                                <td>
+                                    <span class="badge bg-light text-dark">
+                                        <i class="bi bi-gear me-1"></i>{{ plan.machine.name }}
+                                    </span>
+                                </td>
+                                <td class="text-center">
+                                    <span class="badge bg-primary">{{ plan.start_time|time:"H:i" }}</span>
+                                </td>
+                                <td class="text-center">
+                                    <span class="badge bg-info">{{ plan.end_time|time:"H:i" }}</span>
+                                </td>
+                                <td class="text-center">
+                                    <span class="fw-bold text-primary">{{ plan.planned_quantity }}</span>
+                                </td>
+                                <td class="text-center">
+                                    {% if plan.actual_quantity is not None %}
+                                    <span class="fw-bold text-success">{{ plan.actual_quantity }}</span>
+                                    {% else %}
+                                    <span class="text-muted">-</span>
+                                    {% endif %}
+                                </td>
+                                <td class="text-center">
+                                    {% if plan.actual_quantity is not None %}
+                                    {% with achievement_rate=plan.achievement_rate %}
+                                    <span class="badge bg-{% if achievement_rate >= 100 %}success{% elif achievement_rate >= 80 %}warning{% else %}danger{% endif %} px-3 py-2">
+                                        {{ achievement_rate|floatformat:1 }}%
+                                    </span>
+                                    {% endwith %}
+                                    {% else %}
+                                    <span class="text-muted">-</span>
+                                    {% endif %}
+                                </td>
+                                <td class="text-center">
+                                    <div class="btn-group" role="group">
+                                        <a href="{% url 'production:plan_update' plan.pk %}" class="btn btn-sm btn-outline-primary" title="編集">
+                                            <i class="bi bi-pencil"></i>
+                                        </a>
+                                        <a href="{% url 'production:plan_delete' plan.pk %}" class="btn btn-sm btn-outline-danger delete-plan" title="削除">
+                                            <i class="bi bi-trash"></i>
+                                        </a>
+                                        {% if not plan.actual_quantity %}
+                                        <a href="{% url 'production:result_create' %}?plan={{ plan.pk }}" class="btn btn-sm btn-success" title="実績登録">
+                                            <i class="bi bi-plus-circle"></i>
+                                        </a>
+                                        {% endif %}
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        {% else %}
+        <div class="card">
+            <div class="card-body text-center py-5">
+                <i class="bi bi-table fs-1 text-muted"></i>
+                <h4 class="mt-3 text-muted">計画がありません</h4>
+                <p class="text-muted">この日付・ラインには計画が登録されていません。</p>
+                <a href="{% url 'production:plan_create' line.id date_str %}" class="btn btn-success">
+                    <i class="bi bi-plus-circle me-2"></i>最初の計画を作成
+                </a>
+            </div>
+        </div>
+        {% endif %}
     </div>
 
     <!-- ページネーション -->
@@ -388,6 +569,10 @@ document.addEventListener('DOMContentLoaded', function() {
     const todayBtn = document.getElementById('todayBtn');
     const lineId = {{ line.id }};
     
+    // ドラッグアンドドロップ用変数の宣言
+    let cardSortable;
+    let tableSortable;
+    
     // 日付変更時の処理
     function changeDate(newDate) {
         const url = `/production/plan/${lineId}/${newDate}/`;
@@ -443,8 +628,17 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
     
-    // 削除確認
+    // 削除確認（カード表示）
     document.querySelectorAll('a[href*="delete"]').forEach(function(link) {
+        link.addEventListener('click', function(e) {
+            if (!confirm('この計画を削除してもよろしいですか？')) {
+                e.preventDefault();
+            }
+        });
+    });
+    
+    // 削除確認（テーブル表示）
+    document.querySelectorAll('.delete-plan').forEach(function(link) {
         link.addEventListener('click', function(e) {
             if (!confirm('この計画を削除してもよろしいですか？')) {
                 e.preventDefault();
@@ -463,23 +657,86 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
     
-    // ドラッグアンドドロップ機能
-    const sortablePlans = document.getElementById('sortable-plans');
-    if (sortablePlans) {
-        const sortable = new Sortable(sortablePlans, {
-            handle: '.drag-handle',
-            ghostClass: 'sortable-ghost',
-            dragClass: 'sortable-drag',
-            animation: 150,
-            easing: 'cubic-bezier(1, 0, 0, 1)',
-            onEnd: function(evt) {
-                updatePlanSequence();
+    // 表示切り替え機能
+    const viewToggleBtns = document.querySelectorAll('.view-toggle-btn');
+    const cardView = document.getElementById('card-view');
+    const tableView = document.getElementById('table-view');
+    
+    viewToggleBtns.forEach(btn => {
+        btn.addEventListener('click', function() {
+            const targetView = this.dataset.view;
+            
+            // ボタンの状態を更新
+            viewToggleBtns.forEach(b => b.classList.remove('active'));
+            this.classList.add('active');
+            
+            // ビューを切り替え
+            if (targetView === 'card') {
+                cardView.style.display = 'block';
+                tableView.style.display = 'none';
+                localStorage.setItem('planListView', 'card');
+                
+                // カード表示のドラッグアンドドロップを初期化
+                initCardSortable();
+            } else {
+                cardView.style.display = 'none';
+                tableView.style.display = 'block';
+                localStorage.setItem('planListView', 'table');
+                
+                // テーブル表示のドラッグアンドドロップを初期化
+                initTableSortable();
             }
         });
+    });
+    
+    // 保存された表示設定を復元
+    const savedView = localStorage.getItem('planListView') || 'card';
+    const savedViewBtn = document.querySelector(`[data-view="${savedView}"]`);
+    if (savedViewBtn) {
+        savedViewBtn.click();
+    } else {
+        // デフォルトでカード表示の場合、手動で初期化
+        if (savedView === 'card') {
+            initCardSortable();
+        }
     }
     
-    // 順番更新関数
-    function updatePlanSequence() {
+    // ドラッグアンドドロップ機能（カード表示）
+    function initCardSortable() {
+        const sortablePlans = document.getElementById('sortable-plans');
+        if (sortablePlans && !cardSortable) {
+            cardSortable = new Sortable(sortablePlans, {
+                handle: '.drag-handle',
+                ghostClass: 'sortable-ghost',
+                dragClass: 'sortable-drag',
+                animation: 150,
+                easing: 'cubic-bezier(1, 0, 0, 1)',
+                onEnd: function(evt) {
+                    updatePlanSequenceFromCard();
+                }
+            });
+        }
+    }
+    
+    // ドラッグアンドドロップ機能（テーブル表示）
+    function initTableSortable() {
+        const tableSortablePlans = document.getElementById('table-sortable-plans');
+        if (tableSortablePlans && !tableSortable) {
+            tableSortable = new Sortable(tableSortablePlans, {
+                handle: '.drag-handle',
+                ghostClass: 'sortable-ghost',
+                dragClass: 'sortable-drag',
+                animation: 150,
+                easing: 'cubic-bezier(1, 0, 0, 1)',
+                onEnd: function(evt) {
+                    updatePlanSequenceFromTable();
+                }
+            });
+        }
+    }
+    
+    // 順番更新関数（カード表示）
+    function updatePlanSequenceFromCard() {
         const planCards = document.querySelectorAll('#sortable-plans [data-plan-id]');
         const planOrders = [];
         
@@ -500,35 +757,100 @@ document.addEventListener('DOMContentLoaded', function() {
         });
         
         // サーバーに順番更新を送信
+        sendPlanSequenceUpdate(planOrders);
+    }
+    
+    // 順番更新関数（テーブル表示）
+    function updatePlanSequenceFromTable() {
+        const planRows = document.querySelectorAll('#table-sortable-plans tr[data-plan-id]');
+        const planOrders = [];
+        
+        planRows.forEach(function(row, index) {
+            const planId = row.getAttribute('data-plan-id');
+            const newSequence = index + 1;
+            
+            // 順番バッジを更新
+            const badge = row.querySelector('.badge');
+            if (badge) {
+                badge.textContent = newSequence;
+            }
+            
+            // カード表示の順番も同期更新
+            const cardElement = document.querySelector(`#sortable-plans [data-plan-id="${planId}"] .badge`);
+            if (cardElement) {
+                cardElement.textContent = newSequence;
+            }
+            
+            planOrders.push({
+                id: parseInt(planId),
+                sequence: newSequence
+            });
+        });
+        
+        // サーバーに順番更新を送信
+        sendPlanSequenceUpdate(planOrders);
+    }
+    
+    // CSRFトークン取得のためのクッキー読み取り関数
+    function getCookie(name) {
+        let cookieValue = null;
+        if (document.cookie && document.cookie !== '') {
+            const cookies = document.cookie.split(';');
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i].trim();
+                if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                    cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                    break;
+                }
+            }
+        }
+        return cookieValue;
+    }
+    
+    // サーバーに順番更新を送信する共通関数
+    function sendPlanSequenceUpdate(planOrders) {
         const dateStr = dateSelector.value;
         const url = `/production/api/plan-sequence-update/${lineId}/${dateStr}/`;
+        
+        const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value || 
+                         document.querySelector('meta[name=csrf-token]')?.getAttribute('content') ||
+                         getCookie('csrftoken');
+        
+        if (!csrfToken) {
+            console.error('CSRFトークンが見つかりません');
+            showToast('CSRFトークンが見つかりません。ページを再読み込みしてください。', 'danger');
+            return;
+        }
+        
         
         fetch(url, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                'X-CSRFToken': csrfToken
             },
             body: JSON.stringify({
                 plan_orders: planOrders
             })
         })
-        .then(response => response.json())
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            return response.json();
+        })
         .then(data => {
             if (data.success) {
-                // 成功メッセージを表示（オプション）
                 showToast('順番を更新しました', 'success');
             } else {
                 console.error('順番更新エラー:', data.error);
-                showToast('順番の更新に失敗しました', 'danger');
-                // ページをリロードして元の状態に戻す
+                showToast('順番の更新に失敗しました: ' + (data.error || '不明なエラー'), 'danger');
                 setTimeout(() => location.reload(), 2000);
             }
         })
         .catch(error => {
             console.error('通信エラー:', error);
-            showToast('通信エラーが発生しました', 'danger');
-            // ページをリロードして元の状態に戻す
+            showToast('通信エラーが発生しました: ' + error.message, 'danger');
             setTimeout(() => location.reload(), 2000);
         });
     }
@@ -561,6 +883,18 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         }, 3000);
     }
+    
+    // 初回ロード時に現在の表示に応じてSortableを初期化
+    setTimeout(() => {
+        const cardView = document.getElementById('card-view');
+        const tableView = document.getElementById('table-view');
+        
+        if (cardView && cardView.style.display !== 'none') {
+            initCardSortable();
+        } else if (tableView && tableView.style.display !== 'none') {
+            initTableSortable();
+        }
+    }, 100);
 });
 </script>
 {% endblock %} 
