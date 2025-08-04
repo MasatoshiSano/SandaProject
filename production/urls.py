@@ -1,4 +1,4 @@
-from django.urls import path
+from django.urls import path, include
 from . import views
 
 app_name = 'production'
@@ -44,6 +44,15 @@ urlpatterns = [
     path('api/part-info/<int:part_id>/', views.PartInfoAPIView.as_view(), name='part_info_api'),
     path('api/plan-info/<int:plan_id>/', views.PlanInfoAPIView.as_view(), name='plan_info_api'),
     path('api/plan-sequence-update/<int:line_id>/<str:date>/', views.PlanSequenceUpdateAPIView.as_view(), name='plan_sequence_update'),
+    
+    # 週別分析パフォーマンス改善API
+    path('api/weekly-analysis/<int:line_id>/<str:date>/', views.WeeklyAnalysisAPIView.as_view(), name='weekly_analysis_api'),
+    path('api/performance-metrics/<int:line_id>/<str:date>/', views.PerformanceMetricsAPIView.as_view(), name='performance_metrics_api'),
+    
+    # 監視とアラートAPI
+    path('monitoring/health/', views.health_check_api, name='health_check'),
+    path('monitoring/performance/', views.performance_stats_api, name='performance_stats'),
+    path('monitoring/metrics/', views.aggregation_metrics_api, name='aggregation_metrics'),
     
     path('feedback/', views.FeedbackListView.as_view(), name='feedback_list'),
     path('feedback/submit/', views.feedback_submit, name='feedback_submit'),

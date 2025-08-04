@@ -16,22 +16,43 @@ class Command(BaseCommand):
     help = 'サンプルデータを削除＆投入します'
 
     def handle(self, *args, **options):
-        # 1) 既存データ削除
+        # 1) 既存データ削除（外部キー制約を考慮した順序）
         print('既存データを削除中...')
-        # テーブルが存在しない場合はスキップ
-        try:
-            Result.objects.using('default').all().delete()
-        except Exception as e:
-            print(f'Result削除時エラー（スキップ）: {e}')
         
-        Plan.objects.all().delete()
-        WorkCalendar.objects.all().delete()
-        PartChangeDowntime.objects.all().delete()
-        Part.objects.all().delete()
-        Tag.objects.all().delete()
-        Category.objects.all().delete()
-        Machine.objects.all().delete()
-        Line.objects.all().delete()
+        # 外部キー制約を無効化してから削除（PostgreSQL用）
+        from django.db import connection
+        cursor = connection.cursor()
+        
+        try:
+            # PostgreSQLの場合：制約を一時的に無効化
+            cursor.execute("SET session_replication_role = replica;")
+            
+            # 全テーブルのデータを削除
+            Result.objects.all().delete()
+            Plan.objects.all().delete()
+            PartChangeDowntime.objects.all().delete()
+            WorkCalendar.objects.all().delete()
+            
+            # Part削除前にtagsのクリア
+            for part in Part.objects.all():
+                part.tags.clear()
+            Part.objects.all().delete()
+            
+            Tag.objects.all().delete()
+            Category.objects.all().delete()
+            Machine.objects.all().delete()
+            Line.objects.all().delete()
+            
+            # 制約を再有効化
+            cursor.execute("SET session_replication_role = DEFAULT;")
+            
+        except Exception as e:
+            print(f'データ削除時エラー: {e}')
+            # 制約を確実に再有効化
+            try:
+                cursor.execute("SET session_replication_role = DEFAULT;")
+            except:
+                pass
 
         # 2) Line 作成（コード＋日本語説明）
         print('Line を作成中...')
@@ -138,7 +159,7 @@ class Command(BaseCommand):
         # 9) Plan 作成
         print('Plan を作成中...')
         start = date(2025,7,1)
-        end = date(2025,8,1)
+        end = date(2025,10,1)
         day = timedelta(days=1)
         dt = start
         plan_objs = []

@@ -3,7 +3,7 @@ from django import forms
 from .models import (
     Line, UserLineAccess, Machine, Category, Tag, Part, Plan, Result,
     PartChangeDowntime, WorkCalendar, WorkingDay, DashboardCardSetting, UserPreference,
-    PlannedHourlyProduction, Feedback
+    PlannedHourlyProduction, Feedback, WeeklyResultAggregation
 )
 
 
@@ -245,3 +245,60 @@ class FeedbackAdmin(admin.ModelAdmin):
         count = queryset.update(status='rejected')
         self.message_user(request, f'{count}件のフィードバックを却下状態に変更しました。')
     mark_as_rejected.short_description = '選択したフィードバックを却下状態にする'
+
+
+@admin.register(WeeklyResultAggregation)
+class WeeklyResultAggregationAdmin(admin.ModelAdmin):
+    """週別実績集計の管理者画面（読み取り専用）"""
+    list_display = [
+        'date', 'line', 'part', 'judgment', 'total_quantity', 
+        'result_count', 'last_updated_formatted'
+    ]
+    list_filter = ['date', 'line', 'part', 'judgment', 'last_updated']
+    search_fields = ['line', 'part']
+    date_hierarchy = 'date'
+    ordering = ['-date', 'line', 'part', 'judgment']
+    list_per_page = 50
+    
+    # 全フィールドを読み取り専用に設定
+    readonly_fields = [
+        'date', 'line', 'machine', 'part', 'judgment', 
+        'total_quantity', 'result_count', 'last_updated', 'created_at'
+    ]
+    
+    fieldsets = [
+        ('集計キー', {
+            'fields': ['date', 'line', 'machine', 'part', 'judgment']
+        }),
+        ('集計値', {
+            'fields': ['total_quantity', 'result_count']
+        }),
+        ('メタデータ', {
+            'fields': ['last_updated', 'created_at'],
+            'classes': ['collapse']
+        })
+    ]
+    
+    def last_updated_formatted(self, obj):
+        """最終更新日時をフォーマットして表示"""
+        if obj.last_updated:
+            return obj.last_updated.strftime('%Y-%m-%d %H:%M:%S')
+        return '-'
+    last_updated_formatted.short_description = '最終更新'
+    last_updated_formatted.admin_order_field = 'last_updated'
+    
+    def has_add_permission(self, request):
+        """新規追加を無効化（自動生成データのため）"""
+        return False
+    
+    def has_delete_permission(self, request, obj=None):
+        """削除を無効化（自動管理データのため）"""
+        return False
+    
+    def has_change_permission(self, request, obj=None):
+        """変更を無効化（自動管理データのため）"""
+        return False
+    
+    def get_queryset(self, request):
+        """クエリの最適化"""
+        return super().get_queryset(request).select_related()

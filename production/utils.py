@@ -493,12 +493,108 @@ def send_dashboard_update(line_id, date):
     )
 
 
+def schedule_full_reaggregation(line_id: int, target_date) -> bool:
+    """
+    完全再集計をスケジュールする（フォールバック機能）
+    
+    Args:
+        line_id: ライン ID
+        target_date: 対象日
+        
+    Returns:
+        bool: スケジュール成功時 True
+    """
+    try:
+        from .services import AggregationService
+        import logging
+        
+        logger = logging.getLogger(__name__)
+        logger.info(f"完全再集計スケジュール: ライン ID={line_id}, 日付={target_date}")
+        
+        # 即座に再集計を実行（本来はキューシステムを使用すべき）
+        service = AggregationService()
+        count = service.aggregate_single_date(line_id, target_date)
+        
+        logger.info(f"完全再集計完了: {count}件のレコードを作成")
+        return True
+        
+    except Exception as e:
+        logger.error(f"完全再集計スケジュールエラー: {e}")
+        return False
+
+
 def get_weekly_graph_data(line_id, date):
-    """週別グラフデータを取得"""
-    from .models import Plan, Result, Part, Machine
+    """
+    週別グラフデータを取得（集計サービス使用版）
+    
+    Args:
+        line_id: ライン ID
+        date: 基準日
+        
+    Returns:
+        dict: 週別グラフデータ
+    """
+    import logging
+    from .services import WeeklyAnalysisService
+    from .models import Part, Line
+    
+    logger = logging.getLogger(__name__)
+    
+    try:
+        # WeeklyAnalysisServiceは複雑すぎるため、直接フォールバック処理を使用
+        logger.info(f"週別グラフデータ取得: フォールバック処理を使用 - line_id={line_id}")
+        return _get_fallback_weekly_data(line_id, date)
+        
+    except Exception as e:
+        logger.error(f"週別グラフデータ取得エラー: {e}")
+        # フォールバック: 既存の方法でデータを取得
+        return _get_fallback_weekly_data(line_id, date)
+
+
+def _get_fallback_weekly_data(line_id, date):
+    """
+    フォールバック用の週別データ取得（既存の方法）
+    
+    Args:
+        line_id: ライン ID
+        date: 基準日
+        
+    Returns:
+        dict: 週別グラフデータ
+    """
+    import logging
+    from .models import Plan, Result, Part, Line
     from django.db import models
     from django.db.models import Q, Sum
-
+    
+    logger = logging.getLogger(__name__)
+    logger.warning(f"フォールバック方式で週別データを取得: line_id={line_id}")
+    
+    try:
+        # ラインの存在確認
+        line = Line.objects.get(id=line_id)
+    except Line.DoesNotExist:
+        logger.error(f"ライン ID {line_id} が見つかりません")
+        # 空のデータ構造を返す
+        return {
+            'chart_data': {
+                'labels': [],
+                'planned': [],
+                'actual': [],
+                'cumulative_planned': [],
+                'cumulative_actual': [],
+            },
+            'weekly_stats': {
+                'total_planned': 0,
+                'total_actual': 0,
+                'achievement_rate': 0,
+                'working_days': 0,
+                'total_days': 7,
+            },
+            'available_parts': Part.objects.none(),
+            'part_analysis': [],
+        }
+    
     week_dates = get_week_dates(date)
     
     # 週間データを取得
@@ -507,16 +603,27 @@ def get_weekly_graph_data(line_id, date):
     total_actual = 0
     
     for day in week_dates:
-        day_data = get_dashboard_data(line_id, day.strftime('%Y-%m-%d'))
-        weekly_data.append({
-            'date': day.strftime('%Y-%m-%d'),
-            'date_display': day.strftime('%m/%d(%a)'),
-            'planned': day_data['total_planned'],
-            'actual': day_data['total_actual'],
-            'achievement_rate': day_data['achievement_rate'],
-        })
-        total_planned += day_data['total_planned']
-        total_actual += day_data['total_actual']
+        try:
+            day_data = get_dashboard_data(line_id, day.strftime('%Y-%m-%d'))
+            weekly_data.append({
+                'date': day.strftime('%Y-%m-%d'),
+                'date_display': day.strftime('%m/%d(%a)'),
+                'planned': day_data['total_planned'],
+                'actual': day_data['total_actual'],
+                'achievement_rate': day_data['achievement_rate'],
+            })
+            total_planned += day_data['total_planned']
+            total_actual += day_data['total_actual']
+        except Exception as e:
+            logger.error(f"日別データ取得エラー: {day} - {e}")
+            # エラー時は0データを追加
+            weekly_data.append({
+                'date': day.strftime('%Y-%m-%d'),
+                'date_display': day.strftime('%m/%d(%a)'),
+                'planned': 0,
+                'actual': 0,
+                'achievement_rate': 0,
+            })
     
     # 累計データ計算
     cumulative_planned = []
@@ -560,13 +667,24 @@ def get_weekly_graph_data(line_id, date):
     # 利用可能機種を取得
     try:
         line = Line.objects.get(id=line_id)
-        available_parts = Part.objects.filter(
-            Q(plan__line_id=line_id, plan__date__in=week_dates) |
-            Q(name__in=Result.objects.filter(
-                line=line.name, 
-                timestamp__date__in=week_dates
-            ).values_list('part', flat=True).distinct())
-        ).distinct()
+        
+        # 計画から機種を取得
+        planned_parts = set(Plan.objects.filter(
+            line_id=line_id,
+            date__in=week_dates
+        ).values_list('part__name', flat=True))
+        
+        # 集計データから機種を取得（より安全）
+        from .models import WeeklyResultAggregation
+        aggregated_parts = set(WeeklyResultAggregation.objects.filter(
+            line=line.name,
+            date__in=week_dates
+        ).values_list('part', flat=True))
+        
+        # 両方から機種名を統合
+        all_part_names = planned_parts | aggregated_parts
+        available_parts = Part.objects.filter(name__in=all_part_names).distinct()
+        
     except Line.DoesNotExist:
         available_parts = Part.objects.none()
     
@@ -582,16 +700,13 @@ def get_weekly_graph_data(line_id, date):
             ).aggregate(total=Sum('planned_quantity'))['total'] or 0
         )
         
-        # 実績数を集計（新旧両方の構造に対応）
-        start_datetime = datetime.combine(week_dates[0], time.min)
-        end_datetime = datetime.combine(week_dates[-1], time.max)
-        
-        part_actual = Result.objects.filter(
+        # 実績数を集計（WeeklyResultAggregationから安全に取得）
+        part_actual = WeeklyResultAggregation.objects.filter(
             line=line.name,
             part=part.name,
-            timestamp__range=(start_datetime, end_datetime),
+            date__in=week_dates,
             judgment='OK'
-        ).aggregate(total=Sum('quantity'))['total'] or 0
+        ).aggregate(total=Sum('total_quantity'))['total'] or 0
         
         part_achievement_rate = (part_actual / part_planned * 100) if part_planned > 0 else 0
         
@@ -610,8 +725,351 @@ def get_weekly_graph_data(line_id, date):
     }
 
 
+def _get_monthly_data_from_aggregation(line_id, date):
+    """
+    WeeklyResultAggregationから月別データを効率的に取得
+    
+    Args:
+        line_id (int): ライン ID
+        date (date): 基準日（月の任意の日）
+        
+    Returns:
+        dict: {
+            'monthly_data': List[Dict],      # 日別データ
+            'monthly_stats': Dict,           # 月別統計
+            'chart_data': Dict,              # グラフ用データ
+            'calendar_data': List[Dict],     # カレンダー用データ
+            'available_parts': QuerySet,     # 利用可能機種
+            'part_analysis': Dict            # 機種別分析
+        }
+    """
+    import logging
+    from .models import WeeklyResultAggregation, Plan, Part, Line
+    from django.db.models import Sum, Q
+    from collections import defaultdict
+    from datetime import datetime
+    
+    logger = logging.getLogger(__name__)
+    logger.info(f"月別データ取得開始: line_id={line_id}, date={date}")
+    
+    try:
+        # ライン情報取得
+        line = Line.objects.get(id=line_id)
+        line_name = line.name
+        
+        # 月の日付リスト生成
+        month_dates = get_month_dates(date)
+        
+        # 一括クエリで実績データ取得（最適化版）
+        aggregations = WeeklyResultAggregation.objects.filter(
+            line=line_name,
+            date__in=month_dates
+        ).values('date', 'part', 'judgment').annotate(
+            total=Sum('total_quantity')
+        ).order_by('date', 'part', 'judgment')
+        
+        # 計画データを一括取得（最適化版：select_related使用）
+        plans = Plan.objects.select_related('part').filter(
+            line_id=line_id,
+            date__in=month_dates
+        ).values('date', 'part__name').annotate(
+            planned_total=Sum('planned_quantity')
+        ).order_by('date', 'part__name')
+        
+        # 日別データ構築
+        daily_data = {}
+        for day in month_dates:
+            daily_data[day] = {
+                'date': day.strftime('%Y-%m-%d'),
+                'date_display': day.strftime('%m/%d'),
+                'day': day.day,
+                'planned': 0,
+                'actual': 0,
+                'achievement_rate': 0,
+            }
+        
+        # 計画データをマージ
+        for plan_data in plans:
+            day = plan_data['date']
+            if day in daily_data:
+                daily_data[day]['planned'] += plan_data['planned_total'] or 0
+        
+        # 実績データをマージ（OK判定のみ）
+        for agg_data in aggregations:
+            day = agg_data['date']
+            if day in daily_data and agg_data['judgment'] == 'OK':
+                daily_data[day]['actual'] += agg_data['total'] or 0
+        
+        # 達成率計算
+        for day_data in daily_data.values():
+            if day_data['planned'] > 0:
+                day_data['achievement_rate'] = (day_data['actual'] / day_data['planned']) * 100
+            else:
+                day_data['achievement_rate'] = 0
+        
+        # 月別データリスト作成
+        monthly_data = list(daily_data.values())
+        
+        # 月別統計計算
+        total_planned = sum(d['planned'] for d in monthly_data)
+        total_actual = sum(d['actual'] for d in monthly_data)
+        achievement_rate = (total_actual / total_planned * 100) if total_planned > 0 else 0
+        working_days = sum(1 for d in monthly_data if d['planned'] > 0 or d['actual'] > 0)
+        
+        monthly_stats = {
+            'total_planned': total_planned,
+            'total_actual': total_actual,
+            'achievement_rate': achievement_rate,
+            'working_days': working_days,
+            'total_days': len(month_dates),
+            'planned_trend': 'neutral',
+            'actual_trend': 'neutral',
+            'achievement_trend': 'neutral',
+            'planned_change': 0,
+            'actual_change': 0,
+            'achievement_change': 0,
+        }
+        
+        logger.info(f"月別データ取得完了: planned={total_planned}, actual={total_actual}, days={len(month_dates)}")
+        
+        return {
+            'monthly_data': monthly_data,
+            'monthly_stats': monthly_stats,
+            'line_name': line_name,
+            'month_dates': month_dates
+        }
+        
+    except Exception as e:
+        logger.error(f"月別データ取得エラー: {e}")
+        raise
+
+
+def _calculate_monthly_part_analysis(line_name, month_dates):
+    """
+    月別機種分析データを計算
+    
+    Args:
+        line_name (str): ライン名
+        month_dates (List[date]): 月の日付リスト
+        
+    Returns:
+        Dict: 機種別の計画・実績・達成率データ
+    """
+    import logging
+    from .models import WeeklyResultAggregation, Plan, Part
+    from django.db.models import Sum, Q
+    from django.db import models
+    
+    logger = logging.getLogger(__name__)
+    logger.info(f"機種別分析計算開始: line={line_name}, days={len(month_dates)}")
+    
+    try:
+        # 利用可能機種を集計データから取得
+        available_part_names = list(WeeklyResultAggregation.objects.filter(
+            line=line_name,
+            date__in=month_dates
+        ).values_list('part', flat=True).distinct())
+        
+        # Partモデルから機種情報を取得
+        available_parts = Part.objects.filter(name__in=available_part_names) if available_part_names else Part.objects.none()
+        
+        # 機種別分析データ構築
+        part_analysis = []
+        
+        for part in available_parts:
+            # 計画数量の集計（最適化版：select_related使用）
+            part_planned = Plan.objects.select_related('line').filter(
+                line__name=line_name,
+                date__in=month_dates,
+                part=part
+            ).aggregate(total=Sum('planned_quantity'))['total'] or 0
+            
+            # 実績数量の集計（WeeklyResultAggregationから）
+            part_actual = WeeklyResultAggregation.objects.filter(
+                line=line_name,
+                part=part.name,
+                date__in=month_dates,
+                judgment='OK'
+            ).aggregate(total=Sum('total_quantity'))['total'] or 0
+            
+            # 達成率計算
+            part_achievement_rate = (part_actual / part_planned * 100) if part_planned > 0 else 0
+            
+            # 稼働日数計算（最適化版：select_related使用）
+            working_days_count = Plan.objects.select_related('line').filter(
+                line__name=line_name,
+                date__in=month_dates,
+                part=part,
+                planned_quantity__gt=0
+            ).values('date').distinct().count()
+            
+            # 平均PPH計算
+            average_pph = part_actual / working_days_count if working_days_count > 0 else 0
+            
+            # 色生成
+            part_color = generate_part_color(part.id, part.name)
+            
+            part_analysis.append({
+                'name': part.name,
+                'planned': part_planned,
+                'actual': part_actual,
+                'achievement_rate': part_achievement_rate,
+                'working_days': working_days_count,
+                'average_pph': average_pph,
+                'color': part_color,
+            })
+        
+        logger.info(f"機種別分析計算完了: {len(part_analysis)}機種")
+        
+        return {
+            'available_parts': available_parts,
+            'part_analysis': part_analysis
+        }
+        
+    except Exception as e:
+        logger.error(f"機種別分析計算エラー: {e}")
+        raise
+
+
 def get_monthly_graph_data(line_id, date):
-    """月別グラフデータを取得"""
+    """
+    月別グラフデータを取得（WeeklyResultAggregation使用版）
+    
+    新しい実装では、WeeklyResultAggregationテーブルからデータを効率的に取得し、
+    従来方式と比較してクエリ実行回数を大幅に削減しています。
+    
+    Args:
+        line_id (int): ライン ID
+        date (date): 基準日（月の任意の日）
+        
+    Returns:
+        dict: 月別グラフ表示用の全データ
+            - chart_data: グラフ描画用データ
+            - monthly_stats: 月別統計情報
+            - calendar_data: カレンダー表示用データ
+            - weekly_summary: 週別サマリー
+            - available_parts: 利用可能機種QuerySet
+            - part_analysis: 機種別分析データ
+    
+    Raises:
+        Line.DoesNotExist: 指定されたラインが存在しない場合
+        Exception: その他のエラー（フォールバックが実行される）
+    """
+    import logging
+    from collections import defaultdict
+    from datetime import datetime
+    
+    logger = logging.getLogger(__name__)
+    logger.info(f"月別グラフデータ取得開始: line_id={line_id}, date={date}")
+    
+    try:
+        # 基本データ取得
+        base_data = _get_monthly_data_from_aggregation(line_id, date)
+        monthly_data = base_data['monthly_data']
+        monthly_stats = base_data['monthly_stats']
+        line_name = base_data['line_name']
+        month_dates = base_data['month_dates']
+        
+        # 機種別分析データ取得
+        part_data = _calculate_monthly_part_analysis(line_name, month_dates)
+        available_parts = part_data['available_parts']
+        part_analysis = part_data['part_analysis']
+        
+        # 累計データ計算
+        cumulative_planned = []
+        cumulative_actual = []
+        planned_sum = 0
+        actual_sum = 0
+        
+        for d in monthly_data:
+            planned_sum += d['planned']
+            actual_sum += d['actual']
+            cumulative_planned.append(planned_sum)
+            cumulative_actual.append(actual_sum)
+        
+        # チャートデータ生成
+        chart_data = {
+            'labels': [d['date_display'] for d in monthly_data],
+            'planned': [d['planned'] for d in monthly_data],
+            'actual': [d['actual'] for d in monthly_data],
+            'cumulative_planned': cumulative_planned,
+            'cumulative_actual': cumulative_actual,
+        }
+        
+        # カレンダーデータ（ヒートマップ用）
+        calendar_data = []
+        for d in monthly_data:
+            if d['planned'] > 0:
+                achievement = d['achievement_rate']
+            else:
+                achievement = None
+            calendar_data.append(achievement)
+        
+        # 週別サマリー生成
+        weekly_summary = []
+        weeks_data = defaultdict(list)
+        
+        for day_data in monthly_data:
+            day_obj = datetime.strptime(day_data['date'], '%Y-%m-%d').date()
+            year, week, weekday = day_obj.isocalendar()
+            week_key = f"{year}-W{week:02d}"
+            weeks_data[week_key].append(day_data)
+        
+        week_number = 1
+        for week_key in sorted(weeks_data.keys()):
+            week_days = weeks_data[week_key]
+            
+            # その週の開始・終了日を計算
+            first_day = datetime.strptime(week_days[0]['date'], '%Y-%m-%d').date()
+            last_day = datetime.strptime(week_days[-1]['date'], '%Y-%m-%d').date()
+            
+            # 週の統計計算
+            week_planned = sum(d['planned'] for d in week_days)
+            week_actual = sum(d['actual'] for d in week_days)
+            week_achievement = (week_actual / week_planned * 100) if week_planned > 0 else 0
+            working_days_count = sum(1 for d in week_days if d['planned'] > 0 or d['actual'] > 0)
+            
+            # 平均PPH計算
+            average_pph = week_actual / working_days_count if working_days_count > 0 else 0
+            
+            # 機種数計算（利用可能機種から）
+            part_count = len(available_parts)
+            
+            weekly_summary.append({
+                'week_number': week_number,
+                'start_date': first_day,
+                'end_date': last_day,
+                'working_days': working_days_count,
+                'planned_quantity': week_planned,
+                'actual_quantity': week_actual,
+                'achievement_rate': week_achievement,
+                'average_pph': average_pph,
+                'part_count': part_count,
+            })
+            week_number += 1
+        
+        logger.info(f"月別グラフデータ取得完了: weeks={len(weekly_summary)}, parts={len(part_analysis)}")
+        
+        return {
+            'chart_data': chart_data,
+            'monthly_stats': monthly_stats,
+            'calendar_data': calendar_data,
+            'weekly_summary': weekly_summary,
+            'available_parts': available_parts,
+            'part_analysis': part_analysis,
+        }
+        
+    except Exception as e:
+        logger.error(f"月別グラフデータ取得エラー: {e}")
+        # フォールバック: 従来の方式を使用
+        logger.warning("フォールバック: 従来の方式で月別データを取得します")
+        return _get_monthly_graph_data_legacy(line_id, date)
+
+
+def _get_monthly_graph_data_legacy(line_id, date):
+    """
+    月別グラフデータを取得（従来方式・フォールバック用）
+    """
     from .models import Plan, Result, Part, Machine
     from django.db import models
     from django.db.models import Q

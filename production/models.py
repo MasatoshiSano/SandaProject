@@ -6,6 +6,8 @@ import jpholiday
 from datetime import datetime, time, timedelta
 from django.db.models.signals import post_save, post_delete
 from django.dispatch import receiver
+from channels.layers import get_channel_layer
+from asgiref.sync import async_to_sync
 
 
 class Line(models.Model):
@@ -205,6 +207,43 @@ class Result(models.Model):
         return f'{self.timestamp} - {self.line} - {self.part} - {self.serial_number}'
 
 
+class WeeklyResultAggregation(models.Model):
+    """週別分析用の実績集計テーブル"""
+    JUDGMENT_CHOICES = [
+        ('OK', 'OK'),
+        ('NG', 'NG'),
+    ]
+
+    # 集計キー
+    date = models.DateField('日付', db_index=True)
+    line = models.CharField('ライン', max_length=100, db_index=True)
+    machine = models.CharField('設備', max_length=100, blank=True, null=True)
+    part = models.CharField('機種', max_length=100, db_index=True)
+    judgment = models.CharField('判定', max_length=2, choices=JUDGMENT_CHOICES)
+    
+    # 集計値
+    total_quantity = models.PositiveIntegerField('合計数量', default=0)
+    result_count = models.PositiveIntegerField('実績件数', default=0)
+    
+    # メタデータ
+    last_updated = models.DateTimeField('最終更新', auto_now=True)
+    created_at = models.DateTimeField('作成日時', auto_now_add=True)
+
+    class Meta:
+        verbose_name = '週別実績集計'
+        verbose_name_plural = '週別実績集計'
+        unique_together = ['date', 'line', 'machine', 'part', 'judgment']
+        indexes = [
+            models.Index(fields=['date', 'line']),
+            models.Index(fields=['date', 'line', 'part']),
+            models.Index(fields=['date', 'line', 'judgment']),
+        ]
+        ordering = ['-date', 'line', 'part']
+
+    def __str__(self):
+        return f'{self.date} - {self.line} - {self.part} - {self.judgment} ({self.total_quantity})'
+
+
 class PartChangeDowntime(models.Model):
     """機種切替ダウンタイム"""
     line = models.ForeignKey(Line, on_delete=models.CASCADE, verbose_name='ライン')
@@ -391,6 +430,137 @@ def recalculate_planned_pph(sender, instance, **kwargs):
         logger.error(f"計画PPH自動計算エラー: {e}")
 
 
+# 週別分析パフォーマンス改善用シグナル
+def retry_with_backoff(func, max_retries=3, base_delay=1):
+    """
+    指数バックオフでリトライを実行する関数
+    
+    Args:
+        func: 実行する関数
+        max_retries: 最大リトライ回数
+        base_delay: 基本遅延時間（秒）
+    """
+    import time
+    import logging
+    
+    logger = logging.getLogger(__name__)
+    
+    for attempt in range(max_retries + 1):
+        try:
+            return func()
+        except Exception as e:
+            if attempt == max_retries:
+                logger.error(f"最大リトライ回数に達しました: {e}")
+                raise
+            
+            delay = base_delay * (2 ** attempt)
+            logger.warning(f"リトライ {attempt + 1}/{max_retries + 1}: {delay}秒後に再試行 - {e}")
+            time.sleep(delay)
+
+
+@receiver(post_save, sender=Result)
+def update_aggregation_on_result_save(sender, instance, created, **kwargs):
+    """実績データ保存時の集計更新（エラーハンドリング強化版）"""
+    from .services import AggregationService
+    import logging
+    
+    logger = logging.getLogger(__name__)
+    
+    try:
+        # 非同期で集計更新を実行
+        from django.db import transaction
+        
+        def run_aggregation_update():
+            def update_with_retry():
+                service = AggregationService()
+                service.incremental_update(instance)
+                return True
+            
+            try:
+                # リトライ機能付きで実行
+                retry_with_backoff(update_with_retry, max_retries=2, base_delay=0.5)
+                logger.info(f"実績保存時集計更新完了: {instance.id}")
+                
+                # WebSocket通知を送信
+                send_aggregation_update_notification(instance)
+                
+            except Exception as e:
+                logger.error(f"実績保存時集計更新エラー（リトライ後）: {e}")
+                
+                # フォールバック: 該当日の完全再集計をスケジュール
+                try:
+                    from .utils import schedule_full_reaggregation
+                    target_date = instance.timestamp.date()
+                    line_name = instance.line
+                    
+                    # ライン名からライン ID を取得
+                    try:
+                        line = Line.objects.get(name=line_name)
+                        schedule_full_reaggregation(line.id, target_date)
+                        logger.info(f"フォールバック: 完全再集計をスケジュール - ライン: {line_name}, 日付: {target_date}")
+                    except Line.DoesNotExist:
+                        logger.error(f"ライン '{line_name}' が見つかりません")
+                        
+                except Exception as fallback_error:
+                    logger.error(f"フォールバック処理エラー: {fallback_error}")
+        
+        # トランザクション完了後に実行
+        transaction.on_commit(run_aggregation_update)
+        
+    except Exception as e:
+        logger.error(f"実績保存シグナルエラー: {e}")
+
+
+@receiver(post_delete, sender=Result)
+def update_aggregation_on_result_delete(sender, instance, **kwargs):
+    """実績データ削除時の集計更新（エラーハンドリング強化版）"""
+    from .services import AggregationService
+    import logging
+    
+    logger = logging.getLogger(__name__)
+    
+    try:
+        # 非同期で集計削除を実行
+        from django.db import transaction
+        
+        def run_aggregation_delete():
+            def delete_with_retry():
+                service = AggregationService()
+                service.incremental_delete(instance)
+                return True
+            
+            try:
+                # リトライ機能付きで実行
+                retry_with_backoff(delete_with_retry, max_retries=2, base_delay=0.5)
+                logger.info(f"実績削除時集計更新完了: {instance.id}")
+                
+            except Exception as e:
+                logger.error(f"実績削除時集計更新エラー（リトライ後）: {e}")
+                
+                # フォールバック: 該当日の完全再集計をスケジュール
+                try:
+                    from .utils import schedule_full_reaggregation
+                    target_date = instance.timestamp.date()
+                    line_name = instance.line
+                    
+                    # ライン名からライン ID を取得
+                    try:
+                        line = Line.objects.get(name=line_name)
+                        schedule_full_reaggregation(line.id, target_date)
+                        logger.info(f"フォールバック: 完全再集計をスケジュール - ライン: {line_name}, 日付: {target_date}")
+                    except Line.DoesNotExist:
+                        logger.error(f"ライン '{line_name}' が見つかりません")
+                        
+                except Exception as fallback_error:
+                    logger.error(f"フォールバック処理エラー: {fallback_error}")
+        
+        # トランザクション完了後に実行
+        transaction.on_commit(run_aggregation_delete)
+        
+    except Exception as e:
+        logger.error(f"実績削除シグナルエラー: {e}")
+
+
 class Feedback(models.Model):
     """フィードバック"""
     CATEGORY_CHOICES = [
@@ -433,3 +603,137 @@ class Feedback(models.Model):
 
     def __str__(self):
         return f"{self.get_category_display()} ({self.created_at.strftime('%Y-%m-%d %H:%M')})"
+
+
+def send_aggregation_update_notification(result_instance):
+    """集計更新のWebSocket通知を送信"""
+    try:
+        channel_layer = get_channel_layer()
+        if not channel_layer:
+            return
+        
+        # ライン情報を取得
+        try:
+            line = Line.objects.get(name=result_instance.line)
+            line_id = line.id
+        except Line.DoesNotExist:
+            return
+        
+        # 通知データを準備
+        notification_data = {
+            'type': 'aggregation_update',
+            'line_id': line_id,
+            'line_name': result_instance.line,
+            'date': result_instance.timestamp.date().isoformat(),
+            'part': result_instance.part,
+            'judgment': result_instance.judgment,
+            'quantity': result_instance.quantity,
+            'timestamp': result_instance.timestamp.isoformat()
+        }
+        
+        # 週別分析コンシューマーに通知
+        weekly_analysis_group = f'weekly_analysis_{line_id}'
+        async_to_sync(channel_layer.group_send)(
+            weekly_analysis_group,
+            {
+                'type': 'aggregation_update',
+                'data': notification_data
+            }
+        )
+        
+        # 集計状況監視コンシューマーに通知
+        async_to_sync(channel_layer.group_send)(
+            'aggregation_status',
+            {
+                'type': 'aggregation_status_update',
+                'data': {
+                    'type': 'result_updated',
+                    'line_name': result_instance.line,
+                    'timestamp': datetime.now().isoformat()
+                }
+            }
+        )
+        
+        # ダッシュボードコンシューマーに通知（該当日のみ）
+        target_date = result_instance.timestamp.date().isoformat()
+        dashboard_group = f'dashboard_{line_id}_{target_date}'
+        async_to_sync(channel_layer.group_send)(
+            dashboard_group,
+            {
+                'type': 'dashboard_update',
+                'data': {
+                    'type': 'result_updated',
+                    'result_data': notification_data
+                }
+            }
+        )
+        
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"WebSocket通知送信エラー: {e}")
+
+
+def send_aggregation_status_notification(status_type, data):
+    """集計状況の変更通知を送信"""
+    try:
+        channel_layer = get_channel_layer()
+        if not channel_layer:
+            return
+        
+        # 集計状況監視コンシューマーに通知
+        async_to_sync(channel_layer.group_send)(
+            'aggregation_status',
+            {
+                'type': 'aggregation_status_update',
+                'data': {
+                    'type': status_type,
+                    'data': data,
+                    'timestamp': datetime.now().isoformat()
+                }
+            }
+        )
+        
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"集計状況通知送信エラー: {e}")
+
+
+def send_weekly_analysis_update(line_id, start_date, end_date):
+    """週別分析データの更新通知を送信"""
+    try:
+        from .services import WeeklyAnalysisService
+        
+        channel_layer = get_channel_layer()
+        if not channel_layer:
+            return
+        
+        # 更新されたデータを取得
+        line = Line.objects.get(id=line_id)
+        service = WeeklyAnalysisService()
+        
+        weekly_data = service.get_weekly_data(line.name, start_date, end_date)
+        performance_metrics = service.get_performance_metrics(line.name, start_date, end_date)
+        
+        # 週別分析コンシューマーに通知
+        weekly_analysis_group = f'weekly_analysis_{line_id}'
+        async_to_sync(channel_layer.group_send)(
+            weekly_analysis_group,
+            {
+                'type': 'weekly_analysis_update',
+                'data': {
+                    'line_name': line.name,
+                    'start_date': start_date.isoformat(),
+                    'end_date': end_date.isoformat(),
+                    'weekly_data': weekly_data,
+                    'performance_metrics': performance_metrics,
+                    'timestamp': datetime.now().isoformat()
+                }
+            }
+        )
+        
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"週別分析更新通知送信エラー: {e}")
