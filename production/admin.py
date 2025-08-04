@@ -3,7 +3,8 @@ from django import forms
 from .models import (
     Line, UserLineAccess, Machine, Category, Tag, Part, Plan, Result,
     PartChangeDowntime, WorkCalendar, WorkingDay, DashboardCardSetting, UserPreference,
-    PlannedHourlyProduction, Feedback, WeeklyResultAggregation
+    PlannedHourlyProduction, Feedback, WeeklyResultAggregation,
+    ProductionForecastSettings, ProductionForecast
 )
 
 
@@ -302,3 +303,102 @@ class WeeklyResultAggregationAdmin(admin.ModelAdmin):
     def get_queryset(self, request):
         """クエリの最適化"""
         return super().get_queryset(request).select_related()
+
+
+@admin.register(ProductionForecastSettings)
+class ProductionForecastSettingsAdmin(admin.ModelAdmin):
+    """終了予測設定の管理者画面"""
+    list_display = ['line', 'calculation_interval_minutes', 'is_active', 'updated_at']
+    list_filter = ['is_active', 'calculation_interval_minutes']
+    search_fields = ['line__name']
+    ordering = ['line__name']
+    
+    fieldsets = [
+        ('基本設定', {
+            'fields': ['line', 'calculation_interval_minutes', 'is_active']
+        }),
+        ('履歴', {
+            'fields': ['created_at', 'updated_at'],
+            'classes': ['collapse']
+        })
+    ]
+    readonly_fields = ['created_at', 'updated_at']
+
+    def save_model(self, request, obj, form, change):
+        """設定変更時のログ出力"""
+        if change:
+            import logging
+            logger = logging.getLogger('production.forecast')
+            logger.info(f"予測設定変更: {obj.line.name} - {obj.calculation_interval_minutes}分間隔")
+        super().save_model(request, obj, form, change)
+
+
+@admin.register(ProductionForecast)
+class ProductionForecastAdmin(admin.ModelAdmin):
+    """生産終了予測の管理者画面（読み取り専用）"""
+    list_display = [
+        'target_date', 'line', 'forecast_completion_time_formatted', 
+        'confidence_level', 'is_delayed', 'is_next_day', 'calculation_timestamp'
+    ]
+    list_filter = ['is_delayed', 'is_next_day', 'target_date', 'line']
+    search_fields = ['line__name']
+    date_hierarchy = 'target_date'
+    ordering = ['-target_date', 'line']
+    list_per_page = 50
+    
+    readonly_fields = [
+        'line', 'target_date', 'forecast_completion_time', 'calculation_timestamp',
+        'current_production_rate', 'total_planned_quantity', 'total_actual_quantity',
+        'is_delayed', 'confidence_level', 'is_next_day', 'error_message',
+        'created_at', 'updated_at'
+    ]
+    
+    fieldsets = [
+        ('予測結果', {
+            'fields': [
+                'line', 'target_date', 'forecast_completion_time', 
+                'confidence_level', 'is_delayed', 'is_next_day'
+            ]
+        }),
+        ('計算データ', {
+            'fields': [
+                'current_production_rate', 'total_planned_quantity', 
+                'total_actual_quantity', 'calculation_timestamp'
+            ]
+        }),
+        ('エラー情報', {
+            'fields': ['error_message'],
+            'classes': ['collapse']
+        }),
+        ('履歴', {
+            'fields': ['created_at', 'updated_at'],
+            'classes': ['collapse']
+        })
+    ]
+    
+    def forecast_completion_time_formatted(self, obj):
+        """予測完了時刻をフォーマットして表示"""
+        if obj.forecast_completion_time:
+            time_str = obj.forecast_completion_time.strftime('%H:%M')
+            if obj.is_next_day:
+                return f'翌{time_str}'
+            return time_str
+        return '--:--'
+    forecast_completion_time_formatted.short_description = '予測完了時刻'
+    forecast_completion_time_formatted.admin_order_field = 'forecast_completion_time'
+    
+    def has_add_permission(self, request):
+        """新規追加を無効化（自動生成データのため）"""
+        return False
+    
+    def has_delete_permission(self, request, obj=None):
+        """削除を無効化"""
+        return request.user.is_superuser  # スーパーユーザーのみ削除可能
+    
+    def has_change_permission(self, request, obj=None):
+        """変更を無効化（自動管理データのため）"""
+        return False
+    
+    def get_queryset(self, request):
+        """クエリの最適化"""
+        return super().get_queryset(request).select_related('line')

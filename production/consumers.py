@@ -3,7 +3,7 @@ from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async
 from django.contrib.auth.models import User
 from .models import Line, UserLineAccess
-from .services import WeeklyAnalysisService
+# from .services import WeeklyAnalysisService  # 一時的にコメントアウト
 from datetime import datetime, date, timedelta
 import logging
 
@@ -76,7 +76,7 @@ class DashboardConsumer(AsyncWebsocketConsumer):
     def get_dashboard_data(self):
         """ダッシュボードデータを取得（集計データ使用）"""
         from .utils import get_dashboard_data
-        from .services import WeeklyAnalysisService
+        # from .services import WeeklyAnalysisService  # 一時的にコメントアウト
         from datetime import datetime, timedelta
         
         try:
@@ -84,21 +84,21 @@ class DashboardConsumer(AsyncWebsocketConsumer):
             dashboard_data = get_dashboard_data(self.line_id, self.date)
             
             # 集計サービスを使用して追加の高速データを取得
-            weekly_service = WeeklyAnalysisService()
-            target_date = datetime.strptime(self.date, '%Y-%m-%d').date()
-            
-            # 週別データを取得
-            week_start = target_date - timedelta(days=target_date.weekday())
-            week_end = week_start + timedelta(days=6)
-            
-            line = Line.objects.get(id=self.line_id)
-            weekly_data = weekly_service.get_weekly_data(line.name, week_start, week_end)
-            performance_metrics = weekly_service.get_performance_metrics(line.name, week_start, week_end)
-            
-            # 集計データを追加
-            dashboard_data['aggregated_weekly_data'] = weekly_data
-            dashboard_data['performance_metrics'] = performance_metrics
-            dashboard_data['data_source'] = 'aggregated'  # データソースを明示
+            # weekly_service = WeeklyAnalysisService()  # 一時的にコメントアウト
+            # target_date = datetime.strptime(self.date, '%Y-%m-%d').date()
+            # 
+            # # 週別データを取得
+            # week_start = target_date - timedelta(days=target_date.weekday())
+            # week_end = week_start + timedelta(days=6)
+            # 
+            # line = Line.objects.get(id=self.line_id)
+            # weekly_data = weekly_service.get_weekly_data(line.name, week_start, week_end)
+            # performance_metrics = weekly_service.get_performance_metrics(line.name, week_start, week_end)
+            # 
+            # # 集計データを追加
+            # dashboard_data['aggregated_weekly_data'] = weekly_data
+            # dashboard_data['performance_metrics'] = performance_metrics
+            # dashboard_data['data_source'] = 'aggregated'  # データソースを明示
             
             return dashboard_data
             
@@ -213,15 +213,17 @@ class WeeklyAnalysisConsumer(AsyncWebsocketConsumer):
         """週別分析データを取得（初期データ）"""
         try:
             line = Line.objects.get(id=self.line_id)
-            service = WeeklyAnalysisService()
+            # service = WeeklyAnalysisService()  # 一時的にコメントアウト
             
             # 今週のデータを取得
             today = date.today()
             week_start = today - timedelta(days=today.weekday())
             week_end = week_start + timedelta(days=6)
             
-            weekly_data = service.get_weekly_data(line.name, week_start, week_end)
-            performance_metrics = service.get_performance_metrics(line.name, week_start, week_end)
+            # weekly_data = service.get_weekly_data(line.name, week_start, week_end)  # 一時的にコメントアウト
+            # performance_metrics = service.get_performance_metrics(line.name, week_start, week_end)  # 一時的にコメントアウト
+            weekly_data = []
+            performance_metrics = {}
             
             return {
                 'line_name': line.name,
@@ -241,12 +243,13 @@ class WeeklyAnalysisConsumer(AsyncWebsocketConsumer):
         """指定期間の週別データを取得"""
         try:
             line = Line.objects.get(id=self.line_id)
-            service = WeeklyAnalysisService()
+            # service = WeeklyAnalysisService()  # 一時的にコメントアウト
             
             start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
             end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
             
-            weekly_data = service.get_weekly_data(line.name, start_date, end_date)
+            # weekly_data = service.get_weekly_data(line.name, start_date, end_date)  # 一時的にコメントアウト
+            weekly_data = []
             
             return {
                 'line_name': line.name,
@@ -265,12 +268,13 @@ class WeeklyAnalysisConsumer(AsyncWebsocketConsumer):
         """機種別分析データを取得"""
         try:
             line = Line.objects.get(id=self.line_id)
-            service = WeeklyAnalysisService()
+            # service = WeeklyAnalysisService()  # 一時的にコメントアウト
             
             start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
             end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
             
-            part_data = service.get_part_analysis(line.name, part_name, start_date, end_date)
+            # part_data = service.get_part_analysis(line.name, part_name, start_date, end_date)  # 一時的にコメントアウト
+            part_data = []
             
             return {
                 'line_name': line.name,
@@ -290,12 +294,13 @@ class WeeklyAnalysisConsumer(AsyncWebsocketConsumer):
         """パフォーマンス指標データを取得"""
         try:
             line = Line.objects.get(id=self.line_id)
-            service = WeeklyAnalysisService()
+            # service = WeeklyAnalysisService()  # 一時的にコメントアウト
             
             start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
             end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
             
-            metrics = service.get_performance_metrics(line.name, start_date, end_date)
+            # metrics = service.get_performance_metrics(line.name, start_date, end_date)  # 一時的にコメントアウト
+            metrics = {}
             
             return {
                 'line_name': line.name,

@@ -58,4 +58,7 @@ urlpatterns = [
     path('feedback/submit/', views.feedback_submit, name='feedback_submit'),
     path('feedback/edit/<int:pk>/', views.feedback_edit, name='feedback_edit'),
     path('feedback/count/', views.get_new_feedback_count, name='feedback_count'),
+    
+    # 終了予測時刻API
+    path('api/', include('production.api_urls')),
 ] 

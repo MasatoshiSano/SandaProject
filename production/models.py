@@ -1,6 +1,6 @@
 from django.db import models
 from django.contrib.auth.models import User
-from django.core.validators import MinValueValidator
+from django.core.validators import MinValueValidator, MaxValueValidator
 from django.utils import timezone
 import jpholiday
 from datetime import datetime, time, timedelta
@@ -406,6 +406,58 @@ class UserPreference(models.Model):
 
     def __str__(self):
         return f'{self.user.username} - 設定'
+
+
+class ProductionForecastSettings(models.Model):
+    """終了予測計算設定"""
+    line = models.OneToOneField(Line, on_delete=models.CASCADE, verbose_name='ライン')
+    calculation_interval_minutes = models.PositiveIntegerField(
+        '計算間隔(分)', 
+        default=15, 
+        validators=[MinValueValidator(1), MaxValueValidator(60)]
+    )
+    is_active = models.BooleanField('有効', default=True)
+    created_at = models.DateTimeField('作成日時', auto_now_add=True)
+    updated_at = models.DateTimeField('更新日時', auto_now=True)
+
+    class Meta:
+        verbose_name = '終了予測設定'
+        verbose_name_plural = '終了予測設定'
+
+    def __str__(self):
+        return f'{self.line.name} - 予測設定 ({self.calculation_interval_minutes}分間隔)'
+
+
+class ProductionForecast(models.Model):
+    """生産終了予測"""
+    line = models.ForeignKey(Line, on_delete=models.CASCADE, verbose_name='ライン')
+    target_date = models.DateField('対象日付')
+    forecast_completion_time = models.TimeField('予測完了時刻', null=True, blank=True)
+    calculation_timestamp = models.DateTimeField('計算実行時刻')
+    current_production_rate = models.DecimalField(
+        '現在の生産速度', max_digits=10, decimal_places=1, null=True, blank=True
+    )
+    total_planned_quantity = models.PositiveIntegerField('計画総数量', default=0)
+    total_actual_quantity = models.PositiveIntegerField('実績総数量', default=0)
+    is_delayed = models.BooleanField('遅延予測', default=False)
+    confidence_level = models.PositiveIntegerField(
+        '信頼度', default=0, 
+        validators=[MinValueValidator(0), MaxValueValidator(100)]
+    )
+    is_next_day = models.BooleanField('翌日', default=False)
+    error_message = models.TextField('エラーメッセージ', blank=True)
+    created_at = models.DateTimeField('作成日時', auto_now_add=True)
+    updated_at = models.DateTimeField('更新日時', auto_now=True)
+    
+    class Meta:
+        verbose_name = '生産終了予測'
+        verbose_name_plural = '生産終了予測'
+        unique_together = ['line', 'target_date']
+        ordering = ['-target_date', 'line']
+
+    def __str__(self):
+        completion_str = self.forecast_completion_time.strftime('%H:%M') if self.forecast_completion_time else '--:--'
+        return f'{self.target_date} {self.line.name} - {completion_str}'
 
 
 # シグナル設定

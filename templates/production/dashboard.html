@@ -108,6 +108,58 @@
     z-index: 9999;
     display: none;
 }
+
+/* 終了予測時刻カード用スタイル */
+.metric-card.forecast-normal {
+    border-left: 4px solid #28a745 !important;
+}
+
+.metric-card.forecast-delayed {
+    border-left: 4px solid #dc3545 !important;
+}
+
+.metric-card.forecast-early {
+    border-left: 4px solid #007bff !important;
+}
+
+.forecast-status {
+    transition: all 0.3s ease;
+}
+
+.badge.forecast-normal {
+    background-color: #28a745 !important;
+}
+
+.badge.forecast-delayed {
+    background-color: #dc3545 !important;
+}
+
+.badge.forecast-early {
+    background-color: #007bff !important;
+}
+
+#forecast-confidence {
+    opacity: 0.8;
+}
+
+.forecast-loading {
+    opacity: 0.6;
+    position: relative;
+}
+
+.forecast-loading::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 20px;
+    height: 20px;
+    margin: -10px 0 0 -10px;
+    border: 2px solid #f3f3f3;
+    border-top: 2px solid #007bff;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
 </style>
 {% endblock %}
 
@@ -193,7 +245,7 @@
 
 <!-- メトリクスカード -->
 <div class="row mb-4">
-    <div class="col-md-3 mb-3">
+    <div class="col-12 col-md-6 col-xl-3 mb-3">
         <div class="card metric-card border-primary">
             <div class="card-body text-center">
                 <div class="metric-value text-primary" id="total-planned">
@@ -206,7 +258,7 @@
             </div>
         </div>
     </div>
-    <div class="col-md-3 mb-3">
+    <div class="col-12 col-md-6 col-xl-3 mb-3">
         <div class="card metric-card border-success">
             <div class="card-body text-center">
                 <div class="metric-value text-success" id="total-actual">
@@ -219,7 +271,7 @@
             </div>
         </div>
     </div>
-    <div class="col-md-3 mb-3">
+    <div class="col-12 col-md-6 col-xl-3 mb-3">
         <div class="card metric-card border-info">
             <div class="card-body text-center">
                 <div class="metric-value text-info" id="achievement-rate">
@@ -232,7 +284,7 @@
             </div>
         </div>
     </div>
-    <div class="col-md-3 mb-3">
+    <div class="col-12 col-md-6 col-xl-3 mb-3">
         <div class="card metric-card border-warning">
             <div class="card-body text-center">
                 <div class="metric-value text-warning" id="remaining">
@@ -242,6 +294,26 @@
                 <small class="text-muted">
                     <i class="bi bi-hourglass-split me-1"></i>予定
                 </small>
+            </div>
+        </div>
+    </div>
+    <!-- 5枚目のカード：終了予測時刻 -->
+    <div class="col-12 col-md-6 col-xl-3 mb-3">
+        <div class="card metric-card border-secondary" id="forecast-card">
+            <div class="card-body text-center">
+                <div class="d-flex justify-content-between align-items-start mb-2">
+                    <div class="metric-label text-muted">終了予測時刻</div>
+                    <i class="bi bi-clock text-secondary"></i>
+                </div>
+                <div class="metric-value text-dark" id="forecast-time">
+                    計算中...
+                </div>
+                <div class="small mt-1">
+                    <span class="badge bg-secondary" id="forecast-status">計算中</span>
+                </div>
+                <div class="mt-1">
+                    <small class="text-muted" id="forecast-confidence"></small>
+                </div>
             </div>
         </div>
     </div>
@@ -1038,9 +1110,99 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
     
+    // 終了予測時刻更新機能
+    function updateForecastCard(forecastData) {
+        const timeElement = document.getElementById('forecast-time');
+        const statusElement = document.getElementById('forecast-status');
+        const confidenceElement = document.getElementById('forecast-confidence');
+        const cardElement = document.getElementById('forecast-card');
+        
+        if (forecastData && forecastData.success && forecastData.completion_time) {
+            // 時刻表示（翌日対応）
+            let displayTime = forecastData.completion_time;
+            if (forecastData.is_next_day) {
+                displayTime = `翌${displayTime}`;
+            }
+            timeElement.textContent = displayTime;
+            
+            // ステータス・色分け
+            cardElement.className = 'card metric-card';
+            if (forecastData.is_delayed) {
+                statusElement.textContent = '遅延予測';
+                statusElement.className = 'badge forecast-delayed';
+                cardElement.classList.add('forecast-delayed');
+            } else {
+                statusElement.textContent = '予定通り';
+                statusElement.className = 'badge forecast-normal';
+                cardElement.classList.add('forecast-normal');
+            }
+            
+            // 信頼度表示
+            if (confidenceElement && forecastData.confidence) {
+                confidenceElement.textContent = `信頼度: ${forecastData.confidence}%`;
+                confidenceElement.className = forecastData.confidence >= 80 ? 
+                    'small text-success' : 'small text-warning';
+            }
+        } else if (forecastData && forecastData.success && !forecastData.completion_time) {
+            // 実績データなしの場合
+            timeElement.textContent = '--:--';
+            statusElement.textContent = '実績データなし';
+            statusElement.className = 'badge bg-secondary';
+            cardElement.className = 'card metric-card border-secondary';
+            if (confidenceElement) {
+                confidenceElement.textContent = '';
+            }
+        } else {
+            // エラーの場合
+            timeElement.textContent = '--:--';
+            statusElement.textContent = '計算エラー';
+            statusElement.className = 'badge bg-danger';
+            cardElement.className = 'card metric-card border-danger';
+            if (confidenceElement) {
+                confidenceElement.textContent = '';
+            }
+        }
+    }
+    
+    function fetchForecastData() {
+        const lineId = {{ line.id }};
+        const dateStr = '{{ date|date:"Y-m-d" }}';
+        
+        // ローディング状態表示
+        const cardElement = document.getElementById('forecast-card');
+        cardElement.classList.add('forecast-loading');
+        
+        fetch(`/production/api/forecast/json/${lineId}/${dateStr}/`, {
+            method: 'GET',
+            credentials: 'same-origin'
+        })
+        .then(response => response.json())
+        .then(data => {
+            updateForecastCard(data);
+        })
+        .catch(error => {
+            console.error('予測データ取得エラー:', error);
+            updateForecastCard({
+                success: false,
+                error: 'ネットワークエラー'
+            });
+        })
+        .finally(() => {
+            cardElement.classList.remove('forecast-loading');
+        });
+    }
+    
+    // 既存のupdateDashboardData関数に予測更新を追加
+    const originalUpdateDashboardData = updateDashboardData;
+    updateDashboardData = function() {
+        originalUpdateDashboardData();
+        fetchForecastData();
+    };
+    
     // 初期状態設定
     updateStatus();
     startAutoUpdate();
+    fetchForecastData(); // 初回予測データ取得
 });
 </script>
 {% endblock %} 
