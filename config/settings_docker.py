@@ -104,9 +104,11 @@ DATABASES = {
     },
     'oracle': {
         'ENGINE': 'django.db.backends.oracle',
-        'NAME': 'oracle:1521/XEPDB1',  # Docker Composeサービス名を使用
-        'USER': 'system',
-        'PASSWORD': 'oracle123',  # 起動時に設定したパスワード
+        'NAME': 'HHS001',
+        'USER': 'ZHH001',
+        'PASSWORD': 'ZHH001_99',
+        'HOST': '10.168.252.16',
+        'PORT': '1521',
         'OPTIONS': {},
     }
 }

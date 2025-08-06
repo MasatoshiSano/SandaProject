@@ -386,7 +386,7 @@ class AggregationStatusConsumer(AsyncWebsocketConsumer):
             # ライン別の集計状況
             from django.db.models import Count
             line_stats = WeeklyResultAggregation.objects.values('line').annotate(
-                count=Count('id')
+                count=Count('serial_number')
             ).order_by('-count')
             
             return {

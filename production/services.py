@@ -109,7 +109,7 @@ class AggregationService:
                 'machine', 'part', 'judgment'
             ).annotate(
                 total_quantity=Sum('quantity'),
-                result_count=Count('id')
+                result_count=Count('serial_number')
             )
             
             # 集計データを保存
@@ -232,7 +232,7 @@ class AggregationService:
                     timestamp__range=(start_datetime, end_datetime)
                 ).aggregate(
                     total_quantity=Sum('quantity'),
-                    result_count=Count('id')
+                    result_count=Count('serial_number')
                 )
                 
                 # 集計データを更新
@@ -291,7 +291,7 @@ class AggregationService:
                         timestamp__range=(start_datetime, end_datetime)
                     ).aggregate(
                         total_quantity=Sum('quantity'),
-                        result_count=Count('id')
+                        result_count=Count('serial_number')
                     )
                     
                     # データが残っている場合は更新、なければ削除
@@ -338,7 +338,7 @@ class AggregationService:
                 'machine', 'part', 'judgment'
             ).annotate(
                 total_quantity=Sum('quantity'),
-                result_count=Count('id')
+                result_count=Count('serial_number')
             )
             
             # 集計テーブルのデータ

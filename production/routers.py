@@ -1,12 +1,14 @@
 """
 データベースルーター
-Resultモデルのみoracleデータベースを使用し、その他のモデルはdefault(PostgreSQL)を使用
+Oracleデータベースは読み取り専用として使用し、すべての書き込みはdefault(PostgreSQL)に実行
 """
 
 
 class DatabaseRouter:
     """
-    Resultモデル用のデータベースルーター
+    読み取り専用Oracle接続用のデータベースルーター
+    - 読み取り: Resultモデルはoracleデータベースから読み取り
+    - 書き込み: すべてのモデルはdefaultデータベースに書き込み（Oracle書き込み禁止）
     """
     
     oracle_models = {'result'}
@@ -19,21 +21,17 @@ class DatabaseRouter:
         return 'default'
     
     def db_for_write(self, model, **hints):
-        """書き込みアクセスの場合のデータベース選択"""
-        if model._meta.app_label == 'production':
-            if model._meta.model_name in self.oracle_models:
-                return 'oracle'
+        """書き込みアクセスの場合のデータベース選択 - Oracleへの書き込みは禁止"""
+        # OracleDBへの書き込みは常に禁止し、defaultデータベースを使用
         return 'default'
     
     def allow_migrate(self, db, app_label, model_name=None, **hints):
-        """マイグレーション実行許可の判定"""
-        if app_label == 'production':
-            if model_name in self.oracle_models:
-                return db == 'oracle'
-            else:
-                return db == 'default'
+        """マイグレーション実行許可の判定 - Oracleへのマイグレーションは禁止"""
+        # Oracleデータベースへのマイグレーションは禁止
+        if db == 'oracle':
+            return False
         
-        # その他のアプリケーションは default のみ
+        # defaultデータベースへのマイグレーションのみ許可
         return db == 'default'
     
     def allow_relation(self, obj1, obj2, **hints):

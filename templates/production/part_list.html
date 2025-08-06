@@ -188,6 +188,17 @@
                             <input type="text" class="form-control" name="search" value="{{ request.GET.search }}" placeholder="機種名で検索">
                         </div>
                         <div class="col-md-3">
+                            <label class="form-label">ライン</label>
+                            <select class="form-select" name="line">
+                                <option value="">全て</option>
+                                {% for line in lines %}
+                                <option value="{{ line.id }}" {% if request.GET.line == line.id|stringformat:"s" %}selected{% endif %}>
+                                    {{ line.name }}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-3">
                             <label class="form-label">カテゴリ</label>
                             <select class="form-select" name="category">
                                 <option value="">全て</option>
@@ -279,6 +290,11 @@
                                 <span class="badge bg-secondary ms-2">無効</span>
                                 {% endif %}
                             </h5>
+                            {% if part.line %}
+                            <p class="text-muted mb-2">
+                                <i class="bi bi-diagram-3 me-1"></i>{{ part.line.name }}
+                            </p>
+                            {% endif %}
                             {% if part.part_number %}
                             <p class="text-muted mb-2">
                                 <i class="bi bi-hash me-1"></i>{{ part.part_number }}
@@ -366,6 +382,9 @@
                                 <h6>基本情報</h6>
                                 <ul class="list-unstyled">
                                     <li><strong>機種名:</strong> {{ part.name }}</li>
+                                    {% if part.line %}
+                                    <li><strong>ライン:</strong> {{ part.line.name }}</li>
+                                    {% endif %}
                                     {% if part.part_number %}
                                     <li><strong>品番:</strong> {{ part.part_number }}</li>
                                     {% endif %}
@@ -468,6 +487,11 @@
                                         <i class="bi bi-gear me-2"></i>機種名
                                     </div>
                                 </th>
+                                <th>
+                                    <div class="d-flex align-items-center">
+                                        <i class="bi bi-diagram-3 me-2"></i>ライン
+                                    </div>
+                                </th>
                                 <th>品番</th>
                                 <th>カテゴリ</th>
                                 <th class="text-center">
@@ -495,6 +519,15 @@
                                             {% endif %}
                                         </div>
                                     </div>
+                                </td>
+                                <td>
+                                    {% if part.line %}
+                                    <span class="badge bg-info-subtle text-info-emphasis border border-info-subtle">
+                                        <i class="bi bi-diagram-3 me-1"></i>{{ part.line.name }}
+                                    </span>
+                                    {% else %}
+                                    <span class="text-muted">-</span>
+                                    {% endif %}
                                 </td>
                                 <td>
                                     {% if part.part_number %}
@@ -577,6 +610,9 @@
                                 <h6>基本情報</h6>
                                 <ul class="list-unstyled">
                                     <li><strong>機種名:</strong> {{ part.name }}</li>
+                                    {% if part.line %}
+                                    <li><strong>ライン:</strong> {{ part.line.name }}</li>
+                                    {% endif %}
                                     {% if part.part_number %}
                                     <li><strong>品番:</strong> {{ part.part_number }}</li>
                                     {% endif %}

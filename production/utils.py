@@ -3,7 +3,7 @@ from django.db import models
 from django.shortcuts import get_object_or_404
 from django.db.models import Count, Q, Sum
 from django.utils import timezone
-from .models import Plan, Result, WorkCalendar, WorkingDay, Part, PlannedHourlyProduction, PartChangeDowntime, Line
+from .models import Plan, Result, WorkCalendar, WorkingDay, Part, PlannedHourlyProduction, PartChangeDowntime, Line, Machine
 import jpholiday
 from collections import defaultdict
 import calendar
@@ -59,6 +59,20 @@ def generate_part_color(part_id, part_name=None):
     return f"#{r:02x}{g:02x}{b:02x}"
 
 
+def get_count_target_machines(line_id):
+    """ライン内のカウント対象設備を取得"""
+    
+    # ライン内のカウント対象設備を取得
+    machines = Machine.objects.filter(
+        line_id=line_id, 
+        is_active=True,
+        is_count_target=True
+    ).order_by('name')
+    
+    logger.info(f"カウント対象設備: {[m.name for m in machines]}")
+    return machines
+
+
 def get_dashboard_data(line_id, date_str):
     """ダッシュボード用のデータを取得"""
     # --- 1. Line オブジェクト／名称取得 ---
@@ -74,15 +88,22 @@ def get_dashboard_data(line_id, date_str):
     # --- 3. 計画(Plan)の取得 ---
     plans = Plan.objects.filter(line_id=line_id, date=date).order_by('sequence')
 
-    # --- 4. 実績(Result)の取得 ---
-    start_dt = datetime.combine(date, time.min)
-    end_dt   = datetime.combine(date, time.max)
+    # --- 4. カウント対象設備を特定 ---
+    count_target_machines = get_count_target_machines(line_id)
+    count_target_machine_names = [m.name for m in count_target_machines]
+    
+    # --- 5. 実績(Result)の取得（カウント対象設備のみ） ---
+    # Oracleテーブルのtimestampは文字列形式（YYYYMMDDhhmmss）
+    start_str = date.strftime('%Y%m%d') + '000000'  # 日付の開始時刻
+    end_str = date.strftime('%Y%m%d') + '235959'    # 日付の終了時刻
     results = Result.objects.filter(
         line=line_name,
-        timestamp__range=(start_dt, end_dt),
-        judgment='OK'
+        machine__in=count_target_machine_names,  # カウント対象設備のみ
+        timestamp__gte=start_str,
+        timestamp__lte=end_str,
+        judgment='1',  # Oracle形式（1=OK, 2=NG）
+        sta_no1='SAND'  # フィルタ条件
     )
-    print('results:', results)
     # --- 5. 機種別データの集計 ---
     # キーは「機種名」の文字列
     part_data: dict[str, dict] = {}
@@ -102,7 +123,7 @@ def get_dashboard_data(line_id, date_str):
 
     # 5-2. 実績数量を加算＆達成率計算
     for result in results:
-        pname = result.part  # 文字列としての機種名
+        pname = result.part  # 文字列フィールドから機種名を取得
         # カラー取得のため、Part オブジェクトにフォールバック
         if pname not in part_data:
             try:
@@ -127,7 +148,7 @@ def get_dashboard_data(line_id, date_str):
 
     # --- 6. 時間別データ生成 ---
     hourly_data = generate_hourly_data_machine_based(
-        line_id, date, plans, None, results
+        line_id, date, plans, count_target_machines, results
     )
 
     # --- 7. 総計算＆残数 ---
@@ -325,18 +346,18 @@ def generate_hourly_data_machine_based(line_id, date, plans, active_machines, re
 
         # ── 4. 実績数量を取得 ──
         # results は既に「line／日付／OK」でフィルタ済みの QuerySet
-        print('result_start:', result_start)
-        print('aware_end:', aware_end)
+        # timestamp は文字列形式（YYYYMMDDhhmmss）なので文字列比較を使用
+        result_start_str = result_start.strftime('%Y%m%d%H%M%S')
+        aware_end_str = aware_end.strftime('%Y%m%d%H%M%S')
         
         hour_qs = results.filter(
-            timestamp__gte=result_start,
-            timestamp__lt=aware_end
+            timestamp__gte=result_start_str,
+            timestamp__lt=aware_end_str
         )
-        print('hour_qs:', hour_qs)
-        part_counts = hour_qs.values('part').annotate(count=Count('id'))
-        print('part_counts:', part_counts)
+        part_counts = hour_qs.values('part').annotate(count=Count('serial_number'))
         for pc in part_counts:
-            pname = pc['part']      # Result.part は機種名の文字列
+            # partフィールドから機種名を直接取得
+            pname = pc['part']
             cnt   = pc['count']
             # Part オブジェクトを経由して ID と色を取得
             try:

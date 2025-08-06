@@ -123,6 +123,19 @@
                         </div>
                         
                         <div class="col-md-6 mb-3">
+                            <label for="{{ form.line.id_for_label }}" class="form-label">
+                                ライン <span class="required-field">*</span>
+                            </label>
+                            {{ form.line }}
+                            {% if form.line.errors %}
+                            <div class="text-danger small mt-1">{{ form.line.errors }}</div>
+                            {% endif %}
+                            <div class="form-text">この機種を生産するラインを選択してください。</div>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
                             <label for="{{ form.part_number.id_for_label }}" class="form-label">品番</label>
                             {{ form.part_number }}
                             {% if form.part_number.errors %}
@@ -130,9 +143,7 @@
                             {% endif %}
                             <div class="form-text">製品の品番やコードがあれば入力してください。</div>
                         </div>
-                    </div>
-                    
-                    <div class="row">
+                        
                         <div class="col-md-6 mb-3">
                             <label for="{{ form.category.id_for_label }}" class="form-label">カテゴリ</label>
                             {{ form.category }}
@@ -140,7 +151,9 @@
                             <div class="text-danger small mt-1">{{ form.category.errors }}</div>
                             {% endif %}
                         </div>
-                        
+                    </div>
+                    
+                    <div class="row">
                         <div class="col-md-6 mb-3">
                             <div class="form-check form-switch mt-4">
                                 {{ form.is_active }}
@@ -280,6 +293,9 @@
                         <div id="preview-content">
                             <div class="text-center">
                                 <h6 id="preview-name" class="text-muted">機種名</h6>
+                                <div class="small text-muted mb-2">
+                                    ライン: <span id="preview-line">-</span>
+                                </div>
                                 <div class="badge bg-primary mb-2">
                                     <span id="preview-pph">-</span> PPH
                                 </div>
@@ -365,6 +381,7 @@
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     const nameInput = document.getElementById('{{ form.name.id_for_label }}');
+    const lineSelect = document.getElementById('{{ form.line.id_for_label }}');
     const pphInput = document.getElementById('{{ form.target_pph.id_for_label }}');
     const categorySelect = document.getElementById('{{ form.category.id_for_label }}');
     const calcCycleTimeInput = document.getElementById('calc-cycle-time');
@@ -393,6 +410,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // 名前変更時のプレビュー更新
     nameInput.addEventListener('input', updatePreview);
+    lineSelect.addEventListener('change', updatePreview);
     categorySelect.addEventListener('change', updatePreview);
     
     // PPH計算機
@@ -434,11 +452,13 @@ document.addEventListener('DOMContentLoaded', function() {
     
     function updatePreview() {
         const name = nameInput.value || '機種名';
+        const line = lineSelect.options[lineSelect.selectedIndex]?.text || '-';
         const pph = pphInput.value || '-';
         const category = categorySelect.options[categorySelect.selectedIndex]?.text || '-';
         const cycleTime = pph > 0 ? (3600 / pph).toFixed(1) : '-';
         
         document.getElementById('preview-name').textContent = name;
+        document.getElementById('preview-line').textContent = line;
         document.getElementById('preview-pph').textContent = pph;
         document.getElementById('preview-cycle').textContent = cycleTime;
         document.getElementById('preview-category').textContent = category;

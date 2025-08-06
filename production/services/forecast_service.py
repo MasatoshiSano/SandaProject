@@ -68,9 +68,16 @@ class ForecastCalculationService:
             current_part_found = False
             
             for plan in plans:
-                actual_qty = plan.results.aggregate(
-                    total=Sum('quantity')
-                )['total'] or 0
+                # Resultモデルから実績数を取得（文字列フィールドでフィルタ）
+                line_name = str(plan.line.id).zfill(6)
+                part_name = plan.part.name
+                actual_qty = Result.get_filtered_queryset().filter(
+                    line=line_name,
+                    part=part_name,
+                    judgment='1',  # OK判定のみ
+                    timestamp__gte=target_date.strftime('%Y%m%d') + '000000',
+                    timestamp__lt=(target_date + timedelta(days=1)).strftime('%Y%m%d') + '000000'
+                ).count()
                 remaining_qty = plan.quantity - actual_qty
                 
                 if remaining_qty > 0:
@@ -127,8 +134,13 @@ class ForecastCalculationService:
                     'current_production_rate': current_rate,
                     'total_planned_quantity': sum(p.quantity for p in plans),
                     'total_actual_quantity': sum(
-                        p.results.aggregate(total=Sum('quantity'))['total'] or 0 
-                        for p in plans
+                        Result.get_filtered_queryset().filter(
+                            line=str(p.line.id).zfill(6),
+                            part=p.part.name,
+                            judgment='1',
+                            timestamp__gte=target_date.strftime('%Y%m%d') + '000000',
+                            timestamp__lt=(target_date + timedelta(days=1)).strftime('%Y%m%d') + '000000'
+                        ).count() for p in plans
                     ),
                     'is_delayed': is_delayed,
                     'confidence_level': confidence,
@@ -146,8 +158,13 @@ class ForecastCalculationService:
                 'confidence': confidence,
                 'total_planned': sum(p.quantity for p in plans),
                 'total_actual': sum(
-                    p.results.aggregate(total=Sum('quantity'))['total'] or 0 
-                    for p in plans
+                    Result.get_filtered_queryset().filter(
+                        line=str(p.line.id).zfill(6),
+                        part=p.part.name,
+                        judgment='1',
+                        timestamp__gte=target_date.strftime('%Y%m%d') + '000000',
+                        timestamp__lt=(target_date + timedelta(days=1)).strftime('%Y%m%d') + '000000'
+                    ).count() for p in plans
                 )
             }
             
@@ -164,32 +181,54 @@ class ForecastCalculationService:
     
     def _get_current_production_info(self, plans, now) -> Tuple[Optional[object], Decimal]:
         """現在生産中機種の判定と生産速度計算（修正版）"""
+        if not plans.exists():
+            return None, Decimal('0')
+        
+        # 対象ラインの文字列表現を取得
+        line_obj = plans.first().line
+        line_name = str(line_obj.id).zfill(6)  # ライン名は6桁でゼロパディング
+        
         # 直近の実績から現在生産中の機種を特定
-        recent_results = Result.objects.filter(
-            plan__in=plans,
-            timestamp__gte=now - timedelta(hours=2)  # 2時間以内の実績
-        ).order_by('-timestamp').select_related('plan', 'plan__part')
+        # Resultモデルは文字列フィールドを持つので、文字列での比較を行う
+        recent_results = Result.get_filtered_queryset().filter(
+            line=line_name,
+            timestamp__gte=(now - timedelta(hours=2)).strftime('%Y%m%d%H%M%S')
+        ).order_by('-timestamp')
         
         if not recent_results.exists():
             return None, Decimal('0')
         
         # 最新の実績から現在の機種を判定
         latest_result = recent_results.first()
-        current_plan = latest_result.plan
+        current_part_name = latest_result.part
         
-        # 計画数に達しているかチェック
-        actual_qty = current_plan.results.aggregate(
-            total=Sum('quantity')
-        )['total'] or 0
+        # 計画に含まれる機種と照合
+        current_plan = None
+        for plan in plans:
+            if plan.part.name == current_part_name:
+                current_plan = plan
+                break
+        
+        if not current_plan:
+            return None, Decimal('0')
+        
+        # 計画数に達しているかチェック（実績をカウント）
+        actual_qty = Result.get_filtered_queryset().filter(
+            line=line_name,
+            part=current_part_name,
+            judgment='1',  # OK判定のみ
+            timestamp__gte=now.replace(hour=0, minute=0, second=0, microsecond=0).strftime('%Y%m%d%H%M%S'),
+            timestamp__lt=(now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)).strftime('%Y%m%d%H%M%S')
+        ).count()
         
         if actual_qty >= current_plan.quantity:
             return None, Decimal('0')  # 現在の機種は完了済み
         
-        # 修正：現在の機種の連続生産時間が30分以上かチェック
-        current_part_results = Result.objects.filter(
-            plan__part=current_plan.part,
-            plan__line=current_plan.line,
-            plan__date=current_plan.date
+        # 現在の機種の連続生産時間が30分以上かチェック
+        current_part_results = Result.get_filtered_queryset().filter(
+            line=line_name,
+            part=current_part_name,
+            judgment='1'
         ).order_by('-timestamp')
         
         if current_part_results.exists():
@@ -201,14 +240,13 @@ class ForecastCalculationService:
             
             if production_duration >= timedelta(minutes=30):
                 # 30分以上連続生産：実績ベースの速度計算
+                recent_30min_start = (now - timedelta(minutes=30)).strftime('%Y%m%d%H%M%S')
                 recent_30min = current_part_results.filter(
-                    timestamp__gte=now - timedelta(minutes=30)
+                    timestamp__gte=recent_30min_start
                 )
                 
                 if recent_30min.exists():
-                    total_qty = recent_30min.aggregate(
-                        total=Sum('quantity')
-                    )['total'] or 0
+                    total_qty = recent_30min.count()
                     current_rate = Decimal(str((total_qty / 30) * 60))  # 時間当たりに換算
                     
                     # 異常値チェック
@@ -235,11 +273,17 @@ class ForecastCalculationService:
         continuous_start = current_time
         
         for result in results:
-            time_gap = prev_time - result.timestamp
-            if time_gap > timedelta(minutes=5):  # 5分以上の間隔で生産中断と判定
-                break
-            continuous_start = result.timestamp
-            prev_time = result.timestamp
+            # 文字列形式のタイムスタンプをdatetimeに変換
+            try:
+                result_time = datetime.strptime(result.timestamp, '%Y%m%d%H%M%S')
+                time_gap = prev_time - result_time
+                if time_gap > timedelta(minutes=5):  # 5分以上の間隔で生産中断と判定
+                    break
+                continuous_start = result_time
+                prev_time = result_time
+            except ValueError:
+                # タイムスタンプの形式が不正な場合はスキップ
+                continue
         
         return continuous_start
     

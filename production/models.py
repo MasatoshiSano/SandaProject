@@ -49,6 +49,7 @@ class Machine(models.Model):
     description = models.TextField('説明', blank=True)
     is_active = models.BooleanField('有効', default=True)
     is_production_active = models.BooleanField('生産稼働中', default=False, help_text='この設備が現在生産稼働中かを示すフラグ')
+    is_count_target = models.BooleanField('カウント対象', default=False, help_text='ダッシュボードで実績カウントの対象とする設備')
     created_at = models.DateTimeField('作成日時', auto_now_add=True)
     updated_at = models.DateTimeField('更新日時', auto_now=True)
 
@@ -99,8 +100,9 @@ class Tag(models.Model):
 
 class Part(models.Model):
     """機種"""
-    name = models.CharField('機種名', max_length=100, unique=True)
+    name = models.CharField('機種名', max_length=100)
     part_number = models.CharField('品番', max_length=50, blank=True, unique=True, null=True)
+    line = models.ForeignKey(Line, on_delete=models.CASCADE, verbose_name='ライン')
     category = models.ForeignKey(Category, on_delete=models.CASCADE, verbose_name='カテゴリ')
     tags = models.ManyToManyField(Tag, blank=True, verbose_name='タグ')
     target_pph = models.PositiveIntegerField('目標PPH', validators=[MinValueValidator(1)],null=True,blank=True)
@@ -113,7 +115,8 @@ class Part(models.Model):
     class Meta:
         verbose_name = '機種'
         verbose_name_plural = '機種'
-        ordering = ['name']
+        ordering = ['line', 'name']
+        unique_together = ['line', 'name']
 
     def save(self, *args, **kwargs):
         # サイクルタイム = 3600 ÷ 目標PPH
@@ -121,7 +124,7 @@ class Part(models.Model):
         super().save(*args, **kwargs)
 
     def __str__(self):
-        return self.name
+        return f'{self.line.name} - {self.name}'
 
 
 class Plan(models.Model):
@@ -179,32 +182,60 @@ class Plan(models.Model):
 
 
 class Result(models.Model):
-    """実績"""
+    """実績（Oracleテーブル HF1REM01）"""
     JUDGMENT_CHOICES = [
-        ('OK', 'OK'),
-        ('NG', 'NG'),
+        ('1', 'OK'),
+        ('2', 'NG'),
     ]
 
-    quantity = models.PositiveIntegerField('数量', default=1, validators=[MinValueValidator(1)])
+    # 基本フィールド - Oracleテーブル列名に対応
+    timestamp = models.CharField('タイムスタンプ', max_length=14, db_column='MK_DATE')  # YYYYMMDDhhmmss形式
+    serial_number = models.CharField('シリアル番号', max_length=100, db_column='M_SERIAL', primary_key=True)
+    judgment = models.CharField('判定', max_length=1, choices=JUDGMENT_CHOICES, db_column='OPEFIN_RESULT')
     
-    # 実績は計画に依存しない独立したデータ（文字列として保存）
-    line = models.CharField('ライン', max_length=100, default='', blank=True, null=True)
-    machine = models.CharField('設備', max_length=100, default='', blank=True, null=True)  
-    part = models.CharField('機種', max_length=100, default='', blank=True, null=True)
+    # 文字列フィールド - Oracleテーブル列名に対応
+    line = models.CharField('ライン', max_length=100, db_column='STA_NO2')
+    machine = models.CharField('設備', max_length=100, db_column='STA_NO3')
+    part = models.CharField('機種', max_length=100, db_column='partsname')
     
-    timestamp = models.DateTimeField('タイムスタンプ')
-    serial_number = models.CharField('シリアル番号', max_length=100)
-    judgment = models.CharField('判定', max_length=2, choices=JUDGMENT_CHOICES)
-    notes = models.TextField('備考', blank=True)
-    created_at = models.DateTimeField('作成日時', auto_now_add=True)
+    # フィルタ用フィールド
+    sta_no1 = models.CharField('STA_NO1', max_length=100, db_column='STA_NO1')
 
     class Meta:
         verbose_name = '実績'
         verbose_name_plural = '実績'
         ordering = ['-timestamp']
+        db_table = 'HF1REM01'  # 実際のOracleテーブル名
+        managed = False  # マイグレーション対象外（既存テーブル使用）
 
     def __str__(self):
         return f'{self.timestamp} - {self.line} - {self.part} - {self.serial_number}'
+    
+    # カスタムマネージャー（STA_NO1='SAND'でフィルタ）
+    objects = models.Manager()  # デフォルトマネージャー
+    
+    @classmethod
+    def get_filtered_queryset(cls):
+        """STA_NO1='SAND'でフィルタされたクエリセットを返す"""
+        return cls.objects.filter(sta_no1='SAND')
+    
+    # 後方互換性のためのプロパティ
+    @property
+    def line_name(self):
+        return self.line
+    
+    @property
+    def machine_name(self):
+        return self.machine
+    
+    @property
+    def part_name(self):
+        return self.part
+    
+    @property
+    def quantity(self):
+        """各実績レコードは1個を表す"""
+        return 1
 
 
 class WeeklyResultAggregation(models.Model):

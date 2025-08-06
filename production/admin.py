@@ -25,11 +25,11 @@ class UserLineAccessAdmin(admin.ModelAdmin):
 @admin.register(Machine)
 class MachineAdmin(admin.ModelAdmin):
     list_display = [
-        'name', 'line', 'is_active', 'is_production_active',  # モデルフィールドを表示
-        'active_status', 'production_status', 'created_at'
+        'name', 'line', 'is_active', 'is_production_active', 'is_count_target',
+        'active_status', 'production_status', 'count_target_status', 'created_at'
     ]
-    list_filter = ['line', 'is_active', 'is_production_active', 'created_at']
-    list_editable = ['is_production_active']
+    list_filter = ['line', 'is_active', 'is_production_active', 'is_count_target', 'created_at']
+    list_editable = ['is_production_active', 'is_count_target']
     search_fields = ['name', 'line__name']
     ordering = ['line', 'name']
     
@@ -38,8 +38,9 @@ class MachineAdmin(admin.ModelAdmin):
             'fields': ['name', 'line', 'description']
         }),
         ('設定', {
-            'fields': ['is_active', 'is_production_active'],
-            'description': 'is_production_active: この設備が現在生産稼働中かを示すフラグです。実績集計の対象になります。'
+            'fields': ['is_active', 'is_production_active', 'is_count_target'],
+            'description': 'is_production_active: この設備が現在生産稼働中かを示すフラグです。実績集計の対象になります。<br>'
+                          'is_count_target: ダッシュボードで実績カウントの対象とする設備です。'
         }),
         ('履歴', {
             'fields': ['created_at', 'updated_at'],
@@ -59,6 +60,12 @@ class MachineAdmin(admin.ModelAdmin):
             return "🟢 稼働中"
         return "⚪ 停止中"
     production_status.short_description = '生産状況'
+    
+    def count_target_status(self, obj):
+        if obj.is_count_target:
+            return "📊 対象"
+        return "➖ 対象外"
+    count_target_status.short_description = 'カウント'
     
     def get_list_display_links(self, request, list_display):
         # list_editable があるフィールドをリンクから除外
@@ -96,11 +103,29 @@ class TagAdmin(admin.ModelAdmin):
 
 @admin.register(Part)
 class PartAdmin(admin.ModelAdmin):
-    list_display = ['name', 'category', 'target_pph', 'cycle_time', 'is_active', 'created_at']
-    list_filter = ['category', 'is_active', 'created_at']
-    search_fields = ['name', 'category__name']
+    list_display = ['name', 'line', 'category', 'target_pph', 'cycle_time', 'is_active', 'created_at']
+    list_filter = ['line', 'category', 'is_active', 'created_at']
+    search_fields = ['name', 'line__name', 'category__name']
     filter_horizontal = ['tags']
     readonly_fields = ['cycle_time']
+    
+    fieldsets = [
+        ('基本情報', {
+            'fields': ['name', 'line', 'part_number', 'category']
+        }),
+        ('設定', {
+            'fields': ['target_pph', 'cycle_time', 'description', 'is_active']
+        }),
+        ('タグ', {
+            'fields': ['tags'],
+            'classes': ['collapse']
+        }),
+        ('履歴', {
+            'fields': ['created_at', 'updated_at'],
+            'classes': ['collapse']
+        })
+    ]
+    readonly_fields = ['cycle_time', 'created_at', 'updated_at']
 
 
 @admin.register(Plan)
@@ -113,10 +138,72 @@ class PlanAdmin(admin.ModelAdmin):
 
 @admin.register(Result)
 class ResultAdmin(admin.ModelAdmin):
-    list_display = ['timestamp', 'line', 'machine', 'part', 'quantity', 'serial_number', 'judgment']
-    list_filter = ['line', 'machine', 'part', 'judgment', 'timestamp']
-    search_fields = ['serial_number', 'part__name', 'line__name', 'machine__name']
-    date_hierarchy = 'timestamp'
+    list_display = ['timestamp', 'line', 'machine', 'part', 'serial_number', 'judgment']
+    list_filter = ['line', 'machine', 'part', 'judgment']
+    search_fields = ['serial_number', 'line', 'machine', 'part']
+    readonly_fields = ['timestamp', 'serial_number', 'judgment', 'line', 'machine', 'part', 'sta_no1']
+    list_per_page = 100  # 1ページあたりの表示件数
+    
+    def get_queryset(self, request):
+        """デフォルトで最新の範囲に制限"""
+        qs = super().get_queryset(request)
+        # 常にtimestampで降順ソート
+        qs = qs.order_by('-timestamp')
+        
+        # 検索やフィルタが適用されていない場合のみ時間範囲で制限
+        if not request.GET.get('q') and not any(key in request.GET for key in ['line', 'machine', 'part', 'judgment']):
+            # 最新の時間範囲から制限（スライスではなくフィルタを使用）
+            # 最新のタイムスタンプを取得して、そこから一定時間範囲のデータのみ表示
+            try:
+                latest = qs.first()
+                if latest and latest.timestamp:
+                    # 最新から約1週間分のデータのみ表示（YYYYMMDDhhmmss形式）
+                    latest_timestamp = latest.timestamp
+                    # 1週間前の日付を計算（文字列操作）
+                    if len(latest_timestamp) >= 8:
+                        from datetime import datetime, timedelta
+                        # YYYYMMDDの部分を取得
+                        date_str = latest_timestamp[:8]
+                        try:
+                            # 日付に変換
+                            date_obj = datetime.strptime(date_str, '%Y%m%d')
+                            # 7日前の日付を計算
+                            start_date = date_obj - timedelta(days=7)
+                            start_timestamp = start_date.strftime('%Y%m%d') + "000000"
+                            return qs.filter(timestamp__gte=start_timestamp)
+                        except ValueError:
+                            # 日付変換に失敗した場合は元の処理を継続
+                            pass
+            except Exception:
+                # エラーが発生した場合はそのまま返す
+                pass
+        
+        return qs
+    
+    def changelist_view(self, request, extra_context=None):
+        """管理画面のリストビューに警告メッセージを追加"""
+        extra_context = extra_context or {}
+        
+        # フィルタが適用されていない場合の警告
+        if not request.GET.get('q') and not any(key in request.GET for key in ['line', 'machine', 'part', 'judgment']):
+            extra_context['warning_message'] = (
+                "⚠️ パフォーマンス向上のため、直近1週間のデータのみ表示しています。"
+                "特定のデータを検索するには、上記のフィルタや検索機能をご利用ください。"
+            )
+        
+        return super().changelist_view(request, extra_context)
+    
+    def has_add_permission(self, request):
+        """Oracle読み取り専用のため追加を禁止"""
+        return False
+    
+    def has_change_permission(self, request, obj=None):
+        """Oracle読み取り専用のため変更を禁止"""
+        return False
+    
+    def has_delete_permission(self, request, obj=None):
+        """Oracle読み取り専用のため削除を禁止"""
+        return False
 
 
 @admin.register(PartChangeDowntime)

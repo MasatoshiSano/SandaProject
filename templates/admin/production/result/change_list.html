@@ -1,0 +1,26 @@
+{% extends "admin/change_list.html" %}
+{% load i18n admin_urls static admin_list %}
+
+{% block content_title %}
+    {{ block.super }}
+    {% if warning_message %}
+        <div class="messagelist">
+            <div class="warning">{{ warning_message }}</div>
+        </div>
+    {% endif %}
+{% endblock %}
+
+{% block result_list %}
+    {% if warning_message %}
+        <div style="background: #ffc; padding: 10px; margin: 10px 0; border: 1px solid #cc9; border-radius: 4px;">
+            <strong>📊 データ表示について:</strong><br>
+            {{ warning_message }}<br>
+            <small>
+                • 全データ: {{ cl.full_result_count|floatformat:0 }}件<br>
+                • 表示中: 最新時間範囲のデータ（フィルタ未適用時）<br>
+                • より多くのデータを表示するには、ライン・設備・機種・判定のフィルタをご利用ください
+            </small>
+        </div>
+    {% endif %}
+    {{ block.super }}
+{% endblock %}

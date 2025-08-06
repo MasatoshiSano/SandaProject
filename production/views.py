@@ -269,6 +269,11 @@ class PartCreateView(LoginRequiredMixin, CreateView):
     template_name = 'production/part_form.html'
     success_url = reverse_lazy('production:part_list')
     
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs['user'] = self.request.user
+        return kwargs
+    
     def form_valid(self, form):
         messages.success(self.request, '機種を作成しました。')
         return super().form_valid(form)
@@ -286,6 +291,11 @@ class PartUpdateView(LoginRequiredMixin, UpdateView):
     form_class = PartForm
     template_name = 'production/part_form.html'
     success_url = reverse_lazy('production:part_list')
+    
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs['user'] = self.request.user
+        return kwargs
     
     def form_valid(self, form):
         messages.success(self.request, '機種を更新しました。')
@@ -306,7 +316,36 @@ class PartListView(LoginRequiredMixin, ListView):
     paginate_by = 20
     
     def get_queryset(self):
-        return Part.objects.filter(is_active=True).order_by('name')
+        queryset = Part.objects.select_related('line', 'category').prefetch_related('tags')
+        
+        # フィルタリング
+        search = self.request.GET.get('search')
+        if search:
+            queryset = queryset.filter(name__icontains=search)
+        
+        line_id = self.request.GET.get('line')
+        if line_id:
+            queryset = queryset.filter(line_id=line_id)
+        
+        category_id = self.request.GET.get('category')
+        if category_id:
+            queryset = queryset.filter(category_id=category_id)
+        
+        pph_range = self.request.GET.get('pph_range')
+        if pph_range == 'low':
+            queryset = queryset.filter(target_pph__lte=50)
+        elif pph_range == 'medium':
+            queryset = queryset.filter(target_pph__gt=50, target_pph__lte=100)
+        elif pph_range == 'high':
+            queryset = queryset.filter(target_pph__gt=100)
+        
+        active = self.request.GET.get('active')
+        if active == 'true':
+            queryset = queryset.filter(is_active=True)
+        elif active == 'false':
+            queryset = queryset.filter(is_active=False)
+        
+        return queryset.order_by('line__name', 'name')
     
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -315,6 +354,30 @@ class PartListView(LoginRequiredMixin, ListView):
         # アクセス可能なラインを取得
         accessible_lines = get_accessible_lines(self.request.user)
         context['accessible_lines'] = accessible_lines
+        
+        # フィルタ用のライン一覧
+        if accessible_lines:
+            line_ids = [access.line.id for access in accessible_lines]
+            context['lines'] = Line.objects.filter(id__in=line_ids)
+        else:
+            context['lines'] = Line.objects.all()
+        
+        # カテゴリ一覧
+        context['categories'] = Category.objects.filter(is_active=True)
+        
+        # 統計情報
+        parts = self.get_queryset()
+        context['total_parts'] = parts.count()
+        context['active_parts'] = parts.filter(is_active=True).count()
+        
+        # 平均PPHの計算
+        pph_values = parts.filter(target_pph__isnull=False).values_list('target_pph', flat=True)
+        if pph_values:
+            context['average_pph'] = sum(pph_values) / len(pph_values)
+        else:
+            context['average_pph'] = 0
+            
+        context['categories_count'] = Category.objects.filter(is_active=True).count()
         
         # デフォルトライン（計画作成リンク用）
         if accessible_lines:
@@ -1156,6 +1219,14 @@ class PlanSequenceUpdateAPIView(LineAccessMixin, View):
                             """, [new_sequence, plan_id, line_id, date_obj])
                             logger.info(f'Updated plan {plan_id} to sequence {new_sequence}')
             
+            # 計画順番変更後にPPHを再計算
+            try:
+                from .utils import calculate_planned_pph_for_date
+                saved_count = calculate_planned_pph_for_date(line_id, date_obj)
+                logger.info(f'PPH再計算完了: {saved_count}件更新')
+            except Exception as pph_error:
+                logger.warning(f'PPH再計算エラー（順番変更は完了）: {pph_error}')
+            
             return JsonResponse({'success': True, 'message': '順番を更新しました。'})
         
         except json.JSONDecodeError:
@@ -1285,7 +1356,7 @@ def aggregation_metrics_api(request):
         # ライン別統計
         from django.db.models import Count, Max, Min, Sum
         line_stats = WeeklyResultAggregation.objects.values('line').annotate(
-            count=Count('id'),
+                            count=Count('serial_number'),
             total_quantity=Sum('total_quantity'),
             latest_date=Max('date'),
             earliest_date=Min('date')

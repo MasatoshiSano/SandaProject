@@ -90,9 +90,11 @@ class PlanForm(forms.ModelForm):
             self.fields['line'].initial = line_id
             self.fields['line'].widget = forms.HiddenInput()
             self.fields['machine'].queryset = Machine.objects.filter(line_id=line_id)
-        
-        # アクティブな機種のみ表示
-        self.fields['part'].queryset = Part.objects.filter(is_active=True)
+            # 指定されたラインのアクティブな機種のみ表示
+            self.fields['part'].queryset = Part.objects.filter(line_id=line_id, is_active=True)
+        else:
+            # ラインが指定されていない場合はアクティブな機種のみ表示（後でJavaScriptで動的に変更）
+            self.fields['part'].queryset = Part.objects.filter(is_active=True)
 
 
 class PartForm(forms.ModelForm):
@@ -100,9 +102,10 @@ class PartForm(forms.ModelForm):
     
     class Meta:
         model = Part
-        fields = ['name', 'part_number', 'category', 'target_pph', 'description', 'is_active']
+        fields = ['name', 'line', 'part_number', 'category', 'target_pph', 'description', 'is_active']
         widgets = {
             'name': forms.TextInput(attrs={'class': 'form-control'}),
+            'line': forms.Select(attrs={'class': 'form-select'}),
             'part_number': forms.TextInput(attrs={'class': 'form-control'}),
             'category': forms.Select(attrs={'class': 'form-select'}),
             'target_pph': forms.NumberInput(attrs={'class': 'form-control', 'min': '1'}),
@@ -111,7 +114,20 @@ class PartForm(forms.ModelForm):
         }
 
     def __init__(self, *args, **kwargs):
+        user = kwargs.pop('user', None)
         super().__init__(*args, **kwargs)
+        
+        # ユーザーがアクセス可能なラインのみ表示
+        if user:
+            from .utils import get_accessible_lines
+            accessible_lines = get_accessible_lines(user)
+            line_ids = [access.line.id for access in accessible_lines]
+            self.fields['line'].queryset = Line.objects.filter(id__in=line_ids)
+        else:
+            self.fields['line'].queryset = Line.objects.all()
+        
+        self.fields['line'].empty_label = "ラインを選択してください"
+        self.fields['line'].label_from_instance = lambda obj: f"{obj.name} - {obj.description}" if obj.description else obj.name
         self.fields['category'].empty_label = "カテゴリを選択してください"
         
         # 編集時は既存のタグを設定
@@ -160,16 +176,14 @@ class TagForm(forms.ModelForm):
 class ResultForm(forms.ModelForm):
     class Meta:
         model = Result
-        fields = ['line', 'machine', 'part', 'quantity', 'timestamp', 'serial_number', 'judgment', 'notes']
+        fields = ['line', 'machine', 'part', 'timestamp', 'serial_number', 'judgment']
         widgets = {
-            'line': forms.Select(attrs={'class': 'form-select'}),
-            'machine': forms.Select(attrs={'class': 'form-select'}),
-            'part': forms.Select(attrs={'class': 'form-select'}),
-            'quantity': forms.NumberInput(attrs={'class': 'form-control', 'min': '1'}),
+            'line': forms.TextInput(attrs={'class': 'form-control'}),
+            'machine': forms.TextInput(attrs={'class': 'form-control'}),
+            'part': forms.TextInput(attrs={'class': 'form-control'}),
             'timestamp': forms.DateTimeInput(attrs={'type': 'datetime-local', 'class': 'form-control'}),
             'serial_number': forms.TextInput(attrs={'class': 'form-control'}),
             'judgment': forms.Select(attrs={'class': 'form-select'}),
-            'notes': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
         }
 
     def __init__(self, *args, **kwargs):
