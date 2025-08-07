@@ -1,0 +1,13 @@
+<div class="col-12 col-md-6 col-xl-3 mb-3">
+    <div class="card metric-card border-primary">
+        <div class="card-body text-center">
+            <div class="metric-value text-primary" id="total-planned">
+                {{ dashboard_data.total_planned|default:0 }}
+            </div>
+            <div class="metric-label text-muted">{{ card_config.name }}</div>
+            <small class="text-muted">
+                <i class="bi bi-target me-1"></i>目標
+            </small>
+        </div>
+    </div>
+</div>

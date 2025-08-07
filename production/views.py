@@ -1,6 +1,7 @@
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.auth.decorators import login_required
+from django.contrib.auth.models import User
 from django.views.generic import (
     ListView, CreateView, UpdateView, DeleteView, DetailView, TemplateView
 )
@@ -12,21 +13,24 @@ from django.db.models import Q, Count, Sum
 from django.utils import timezone
 from datetime import datetime, date, timedelta
 import json
+import logging
 from calendar import monthrange
 from django.views.decorators.http import require_POST, require_http_methods
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from django.template.loader import render_to_string
 
+logger = logging.getLogger(__name__)
+
 from .models import (
-    Line, Plan, Part, Category, Tag, Result, Machine, UserLineAccess, UserPreference, Feedback
+    Line, Plan, Part, Category, Tag, Result, Machine, UserLineAccess, UserPreference, Feedback, DashboardCardSetting
 )
 from .forms import (
     PlanForm, PartForm, CategoryForm, TagForm, ResultForm, LineSelectForm, ResultFilterForm, FeedbackForm, FeedbackEditForm
 )
 from .utils import (
     get_dashboard_data, get_accessible_lines, get_week_dates, get_month_dates,
-    send_dashboard_update
+    send_dashboard_update, has_line_access, get_user_line_access, update_user_line_access
 )
 
 
@@ -95,6 +99,8 @@ class DashboardView(LineAccessMixin, TemplateView):
     template_name = 'production/dashboard.html'
     
     def get_context_data(self, **kwargs):
+        from .dashboard_cards import get_visible_cards_config
+        
         context = super().get_context_data(**kwargs)
         line_id = kwargs['line_id']
         date_str = kwargs.get('date', timezone.now().date().strftime('%Y-%m-%d'))
@@ -102,21 +108,94 @@ class DashboardView(LineAccessMixin, TemplateView):
         try:
             date_obj = datetime.strptime(date_str, '%Y-%m-%d').date()
         except ValueError:
+            logger.warning(f"Invalid date format: {date_str}, using current date")
             date_obj = timezone.now().date()
             date_str = date_obj.strftime('%Y-%m-%d')
         
         line = get_object_or_404(Line, id=line_id)
-        dashboard_data = get_dashboard_data(line_id, date_str)
+        
+        try:
+            dashboard_data = get_dashboard_data(line_id, date_str)
+        except Exception as e:
+            logger.error(f"Error getting dashboard data for line {line_id}, date {date_str}: {e}")
+            dashboard_data = {}
+        
+        try:
+            # Get visible card configurations
+            card_settings = DashboardCardSetting.objects.filter(is_visible=True).order_by('order')
+            visible_cards = get_visible_cards_config(card_settings)
+            
+            # Ensure we have at least some cards to display
+            if not visible_cards:
+                logger.warning("No visible cards configured, using fallback")
+                visible_cards = self._get_fallback_cards()
+            
+        except Exception as e:
+            logger.error(f"Error getting card configurations: {e}")
+            visible_cards = self._get_fallback_cards()
+        
+        try:
+            # Filter dashboard data based on visible cards
+            filtered_dashboard_data = self._filter_dashboard_data(dashboard_data, visible_cards)
+        except Exception as e:
+            logger.error(f"Error filtering dashboard data: {e}")
+            filtered_dashboard_data = dashboard_data
         
         context.update({
             'line': line,
             'date': date_obj,
             'date_str': date_str,
-            'dashboard_data': dashboard_data,
+            'dashboard_data': filtered_dashboard_data,
+            'visible_cards': visible_cards,
             'prev_date': (date_obj - timedelta(days=1)).strftime('%Y-%m-%d'),
             'next_date': (date_obj + timedelta(days=1)).strftime('%Y-%m-%d'),
         })
         return context
+    
+    def _filter_dashboard_data(self, dashboard_data, visible_cards):
+        """Filter dashboard data based on visible cards configuration"""
+        # Create a set of visible context keys
+        visible_keys = {card.get('context_key') for card in visible_cards if card.get('context_key')}
+        
+        # Always include essential data that's not card-specific
+        essential_keys = {'hourly', 'parts'}
+        visible_keys.update(essential_keys)
+        
+        # Filter the dashboard data
+        filtered_data = {}
+        for key, value in dashboard_data.items():
+            if key in visible_keys:
+                filtered_data[key] = value
+        
+        # Ensure we have default values for missing keys
+        for card in visible_cards:
+            context_key = card.get('context_key')
+            if context_key and context_key not in filtered_data:
+                filtered_data[context_key] = 0
+        
+        return filtered_data
+    
+    def _get_fallback_cards(self):
+        """Get fallback cards when no settings are available"""
+        from .dashboard_cards import get_card_registry
+        
+        registry = get_card_registry()
+        fallback_cards = []
+        
+        # Get basic system cards as fallback
+        for card_type, config in registry.get_system_cards().items():
+            fallback_cards.append({
+                'name': config['name'],
+                'template': config['template'],
+                'context_key': config['context_key'],
+                'order': config['default_order'],
+                'card_type': card_type,
+                'description': config.get('description', ''),
+                'alert_threshold_yellow': 80.0,
+                'alert_threshold_red': 60.0,
+            })
+        
+        return sorted(fallback_cards, key=lambda x: x['order'])
 
 
 class PlanListView(LineAccessMixin, ListView):
@@ -1396,3 +1475,251 @@ def aggregation_metrics_api(request):
             'error': str(e),
             'timestamp': datetime.now().isoformat()
         }, status=500)
+
+
+class LineAccessConfigView(LoginRequiredMixin, TemplateView):
+    """ライン アクセス設定ビュー"""
+    template_name = 'production/line_access_config.html'
+    
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        
+        # 全てのアクティブなラインを取得
+        all_lines = Line.objects.filter(is_active=True).order_by('name')
+        
+        # ユーザーの現在のライン アクセス権限を取得
+        user_lines = get_user_line_access(self.request.user)
+        user_line_ids = list(user_lines.values_list('id', flat=True))
+        
+        context.update({
+            'all_lines': all_lines,
+            'user_line_ids': user_line_ids,
+            'date_str': timezone.now().date().strftime('%Y-%m-%d'),
+        })
+        return context
+    
+    def post(self, request, *args, **kwargs):
+        """ライン アクセス設定の保存"""
+        try:
+            # POSTデータからライン IDを取得
+            line_ids = request.POST.getlist('line_ids')
+            line_ids = [int(line_id) for line_id in line_ids if line_id.isdigit()]
+            
+            # ライン アクセス権限を更新
+            success = update_user_line_access(request.user, line_ids)
+            
+            if success:
+                messages.success(request, 'ライン アクセス設定を保存しました。')
+                # 設定完了後はline-selectページにリダイレクト
+                return redirect('production:line_select')
+            else:
+                messages.error(request, 'ライン アクセス設定の保存に失敗しました。')
+        
+        except Exception as e:
+            messages.error(request, f'エラーが発生しました: {str(e)}')
+        
+        # エラーの場合は同じページを再表示
+        return self.get(request, *args, **kwargs)
+
+
+@login_required
+def line_access_config_api(request):
+    """ライン アクセス設定API（AJAX用）"""
+    if request.method == 'POST':
+        try:
+            import json
+            data = json.loads(request.body)
+            line_ids = data.get('line_ids', [])
+            
+            # ライン IDの検証
+            line_ids = [int(line_id) for line_id in line_ids if str(line_id).isdigit()]
+            
+            # ライン アクセス権限を更新
+            success = update_user_line_access(request.user, line_ids)
+            
+            if success:
+                return JsonResponse({
+                    'status': 'success',
+                    'message': 'ライン アクセス設定を保存しました。'
+                })
+            else:
+                return JsonResponse({
+                    'status': 'error',
+                    'message': 'ライン アクセス設定の保存に失敗しました。'
+                }, status=500)
+        
+        except Exception as e:
+            return JsonResponse({
+                'status': 'error',
+                'message': f'エラーが発生しました: {str(e)}'
+            }, status=500)
+    
+    elif request.method == 'GET':
+        try:
+            # ユーザーの現在のライン アクセス権限を取得
+            user_lines = get_user_line_access(request.user)
+            user_line_ids = list(user_lines.values_list('id', flat=True))
+            
+            return JsonResponse({
+                'status': 'success',
+                'line_ids': user_line_ids
+            })
+        
+        except Exception as e:
+            return JsonResponse({
+                'status': 'error',
+                'message': f'エラーが発生しました: {str(e)}'
+            }, status=500)
+    
+    return JsonResponse({
+        'status': 'error',
+        'message': '無効なリクエストメソッドです。'
+    }, status=405)
+
+class AdminUserAccessView(LoginRequiredMixin, TemplateView):
+    """管理者用ユーザー アクセス管理ビュー"""
+    template_name = 'production/admin_user_access.html'
+    
+    def dispatch(self, request, *args, **kwargs):
+        # 認証チェック
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
+        
+        # 管理者権限チェック
+        if not request.user.is_superuser:
+            return HttpResponseForbidden("管理者権限が必要です。")
+        return super().dispatch(request, *args, **kwargs)
+    
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        
+        # 全ユーザーを取得（管理者以外）
+        users = User.objects.filter(is_superuser=False).order_by('username')
+        
+        # 全てのアクティブなラインを取得
+        all_lines = Line.objects.filter(is_active=True).order_by('name')
+        
+        # 各ユーザーのライン アクセス情報を取得
+        user_access_data = []
+        for user in users:
+            user_lines = get_user_line_access(user)
+            user_line_ids = list(user_lines.values_list('id', flat=True))
+            user_access_data.append({
+                'user': user,
+                'line_ids': user_line_ids,
+                'line_count': len(user_line_ids)
+            })
+        
+        context.update({
+            'user_access_data': user_access_data,
+            'all_lines': all_lines,
+            'date_str': timezone.now().date().strftime('%Y-%m-%d'),
+        })
+        return context
+
+
+@login_required
+def admin_user_access_api(request):
+    """管理者用ユーザー アクセス管理API"""
+    # 管理者権限チェック
+    if not request.user.is_superuser:
+        return JsonResponse({
+            'status': 'error',
+            'message': '管理者権限が必要です。'
+        }, status=403)
+    
+    if request.method == 'POST':
+        try:
+            import json
+            data = json.loads(request.body)
+            user_id = data.get('user_id')
+            line_ids = data.get('line_ids', [])
+            
+            # ユーザーの存在確認
+            try:
+                target_user = User.objects.get(id=user_id, is_superuser=False)
+            except User.DoesNotExist:
+                return JsonResponse({
+                    'status': 'error',
+                    'message': '指定されたユーザーが見つかりません。'
+                }, status=404)
+            
+            # ライン IDの検証
+            line_ids = [int(line_id) for line_id in line_ids if str(line_id).isdigit()]
+            
+            # ライン アクセス権限を更新
+            success = update_user_line_access(target_user, line_ids)
+            
+            if success:
+                # 監査ログ（簡易版）
+                logger.info(f"管理者 {request.user.username} がユーザー {target_user.username} のライン アクセス権限を更新: {line_ids}")
+                
+                return JsonResponse({
+                    'status': 'success',
+                    'message': f'{target_user.username} のライン アクセス設定を更新しました。'
+                })
+            else:
+                return JsonResponse({
+                    'status': 'error',
+                    'message': 'ライン アクセス設定の更新に失敗しました。'
+                }, status=500)
+        
+        except Exception as e:
+            logger.error(f"管理者用ライン アクセス更新エラー: {e}")
+            return JsonResponse({
+                'status': 'error',
+                'message': f'エラーが発生しました: {str(e)}'
+            }, status=500)
+    
+    elif request.method == 'GET':
+        try:
+            user_id = request.GET.get('user_id')
+            
+            if user_id:
+                # 特定ユーザーのライン アクセス権限を取得
+                try:
+                    target_user = User.objects.get(id=user_id, is_superuser=False)
+                    user_lines = get_user_line_access(target_user)
+                    user_line_ids = list(user_lines.values_list('id', flat=True))
+                    
+                    return JsonResponse({
+                        'status': 'success',
+                        'user_id': target_user.id,
+                        'username': target_user.username,
+                        'line_ids': user_line_ids
+                    })
+                except User.DoesNotExist:
+                    return JsonResponse({
+                        'status': 'error',
+                        'message': '指定されたユーザーが見つかりません。'
+                    }, status=404)
+            else:
+                # 全ユーザーのライン アクセス情報を取得
+                users = User.objects.filter(is_superuser=False).order_by('username')
+                user_data = []
+                
+                for user in users:
+                    user_lines = get_user_line_access(user)
+                    user_line_ids = list(user_lines.values_list('id', flat=True))
+                    user_data.append({
+                        'id': user.id,
+                        'username': user.username,
+                        'line_ids': user_line_ids,
+                        'line_count': len(user_line_ids)
+                    })
+                
+                return JsonResponse({
+                    'status': 'success',
+                    'users': user_data
+                })
+        
+        except Exception as e:
+            return JsonResponse({
+                'status': 'error',
+                'message': f'エラーが発生しました: {str(e)}'
+            }, status=500)
+    
+    return JsonResponse({
+        'status': 'error',
+        'message': '無効なリクエストメソッドです。'
+    }, status=405)

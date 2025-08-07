@@ -61,4 +61,12 @@ urlpatterns = [
     
     # 終了予測時刻API
     path('api/', include('production.api_urls')),
+    
+    # ライン アクセス設定
+    path('line-access-config/', views.LineAccessConfigView.as_view(), name='line_access_config'),
+    path('api/line-access-config/', views.line_access_config_api, name='line_access_config_api'),
+    
+    # 管理者用ユーザー アクセス管理
+    path('admin/user-access/', views.AdminUserAccessView.as_view(), name='admin_user_access'),
+    path('api/admin/user-access/', views.admin_user_access_api, name='admin_user_access_api'),
 ] 

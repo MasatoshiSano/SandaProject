@@ -57,10 +57,13 @@ class DashboardConsumer(AsyncWebsocketConsumer):
 
     # Receive message from room group
     async def dashboard_update(self, event):
-        # Send message to WebSocket
+        # Get fresh dashboard data to include updated input count
+        dashboard_data = await self.get_dashboard_data()
+        
+        # Send updated dashboard data to WebSocket
         await self.send(text_data=json.dumps({
             'type': 'dashboard_update',
-            'data': event['data']
+            'data': dashboard_data
         }))
 
     @database_sync_to_async

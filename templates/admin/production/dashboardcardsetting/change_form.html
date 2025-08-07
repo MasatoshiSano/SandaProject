@@ -1,0 +1,170 @@
+{% extends "admin/change_form.html" %}
+{% load static %}
+
+{% block extrahead %}
+{{ block.super }}
+<style>
+.field-error {
+    color: #dc3545;
+    font-size: 14px;
+    margin-top: 5px;
+    display: block;
+}
+
+.errorlist {
+    color: #dc3545;
+    margin: 5px 0;
+    padding: 0;
+    list-style: none;
+}
+
+.errorlist li {
+    margin-bottom: 3px;
+}
+
+.form-row.errors input,
+.form-row.errors textarea,
+.form-row.errors select {
+    border-color: #dc3545;
+    box-shadow: 0 0 0 0.2rem rgba(220, 53, 69, 0.25);
+}
+
+.help-text {
+    color: #6c757d;
+    font-size: 13px;
+    margin-top: 3px;
+}
+
+.validation-info {
+    background-color: #e7f3ff;
+    border: 1px solid #b3d7ff;
+    border-radius: 4px;
+    padding: 10px;
+    margin: 15px 0;
+}
+
+.validation-info h4 {
+    color: #0066cc;
+    margin-top: 0;
+}
+
+.validation-rule {
+    margin: 5px 0;
+    color: #333;
+}
+</style>
+{% endblock %}
+
+{% block form_top %}
+<div class="validation-info">
+    <h4>入力ルール</h4>
+    <div class="validation-rule">• カード名: 必須項目です。他のカードと重複しない名前を設定してください。</div>
+    <div class="validation-rule">• カードタイプ: 必須項目です。システム内部で使用する一意の識別子です。</div>
+    <div class="validation-rule">• 表示順: 0以上の数値で設定してください。小さい数値ほど上に表示されます。</div>
+    <div class="validation-rule">• アラート閾値: 0-100の範囲で設定してください。赤色閾値は黄色閾値以下にしてください。</div>
+    {% if original.is_system_card %}
+    <div class="validation-rule" style="color: #dc3545;">• このカードはシステムカードのため削除できません。</div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block submit_buttons_bottom %}
+{{ block.super }}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // フォームのバリデーション強化
+    const form = document.querySelector('form[method="post"]');
+    if (form) {
+        form.addEventListener('submit', function(e) {
+            let hasError = false;
+            const errors = [];
+            
+            // カード名チェック
+            const nameField = document.querySelector('input[name="name"]');
+            if (nameField && !nameField.value.trim()) {
+                errors.push('カード名は必須です。');
+                nameField.focus();
+                hasError = true;
+            }
+            
+            // カードタイプチェック
+            const cardTypeField = document.querySelector('input[name="card_type"]');
+            if (cardTypeField && !cardTypeField.value.trim()) {
+                errors.push('カードタイプは必須です。');
+                if (!hasError) cardTypeField.focus();
+                hasError = true;
+            }
+            
+            // 表示順チェック
+            const orderField = document.querySelector('input[name="order"]');
+            if (orderField && orderField.value && parseInt(orderField.value) < 0) {
+                errors.push('表示順は0以上の値を設定してください。');
+                if (!hasError) orderField.focus();
+                hasError = true;
+            }
+            
+            // アラート閾値チェック
+            const yellowField = document.querySelector('input[name="alert_threshold_yellow"]');
+            const redField = document.querySelector('input[name="alert_threshold_red"]');
+            
+            if (yellowField && yellowField.value) {
+                const yellowValue = parseFloat(yellowField.value);
+                if (yellowValue < 0 || yellowValue > 100) {
+                    errors.push('黄色アラート閾値は0-100の範囲で設定してください。');
+                    if (!hasError) yellowField.focus();
+                    hasError = true;
+                }
+            }
+            
+            if (redField && redField.value) {
+                const redValue = parseFloat(redField.value);
+                if (redValue < 0 || redValue > 100) {
+                    errors.push('赤色アラート閾値は0-100の範囲で設定してください。');
+                    if (!hasError) redField.focus();
+                    hasError = true;
+                }
+                
+                // 閾値の論理チェック
+                if (yellowField && yellowField.value && redValue > parseFloat(yellowField.value)) {
+                    errors.push('赤色アラート閾値は黄色アラート閾値以下に設定してください。');
+                    if (!hasError) redField.focus();
+                    hasError = true;
+                }
+            }
+            
+            if (hasError) {
+                alert('入力エラー:\n' + errors.join('\n'));
+                e.preventDefault();
+            }
+        });
+    }
+    
+    // 既存のエラーメッセージの表示改善
+    const errorLists = document.querySelectorAll('.errorlist');
+    errorLists.forEach(errorList => {
+        if (errorList.textContent.trim()) {
+            errorList.style.display = 'block';
+            errorList.style.backgroundColor = '#f8d7da';
+            errorList.style.border = '1px solid #f5c6cb';
+            errorList.style.borderRadius = '4px';
+            errorList.style.padding = '8px 12px';
+            errorList.style.marginTop = '5px';
+        }
+    });
+    
+    // エラーのあるフィールドのスタイリング
+    const formRows = document.querySelectorAll('.form-row');
+    formRows.forEach(row => {
+        const errorList = row.querySelector('.errorlist');
+        if (errorList && errorList.textContent.trim()) {
+            row.classList.add('errors');
+            const input = row.querySelector('input, select, textarea');
+            if (input) {
+                input.style.borderColor = '#dc3545';
+                input.style.boxShadow = '0 0 0 0.2rem rgba(220, 53, 69, 0.25)';
+            }
+        }
+    });
+});
+</script>
+{% endblock %}

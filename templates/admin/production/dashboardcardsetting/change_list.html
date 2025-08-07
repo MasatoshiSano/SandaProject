@@ -1,0 +1,143 @@
+{% extends "admin/change_list.html" %}
+{% load static %}
+
+{% block extrahead %}
+{{ block.super }}
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+
+<style>
+.sortable-row {
+    cursor: move;
+}
+.sortable-row:hover {
+    background-color: #f8f9fa;
+}
+.drag-handle {
+    cursor: grab;
+    color: #6c757d;
+    margin-right: 8px;
+}
+.drag-handle:active {
+    cursor: grabbing;
+}
+</style>
+{% endblock %}
+
+{% block result_list %}
+
+<div class="results">
+    <table id="result_list" class="table table-striped">
+        <thead>
+            <tr>
+                <th scope="col">順序</th>
+                <th scope="col">カード名</th>
+                <th scope="col">表示</th>
+                <th scope="col">カードタイプ</th>
+                <th scope="col">システムカード</th>
+                <th scope="col">操作</th>
+            </tr>
+        </thead>
+        <tbody id="sortable-tbody">
+            {% for obj in cl.result_list %} 
+            <tr class="sortable-row" data-id="{{ obj.pk }}" data-order="{{ obj.order }}">
+                <td>
+                    <i class="fas fa-grip-vertical drag-handle"></i>
+                    <span class="order-display">{{ obj.order }}</span>
+                </td>
+                <td>
+                    <strong>{{ obj.name }}</strong>
+                    {% if obj.description %}
+                    <br><small class="text-muted">{{ obj.description|truncatechars:50 }}</small>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if obj.is_visible %}
+                        <span class="badge bg-success">表示</span>
+                    {% else %}
+                        <span class="badge bg-secondary">非表示</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <code>{{ obj.card_type }}</code>
+                </td>
+                <td>
+                    {% if obj.is_system_card %}
+                        <span class="badge bg-primary">システム</span>
+                    {% else %}
+                        <span class="badge bg-light text-dark">カスタム</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <a href="{% url 'admin:production_dashboardcardsetting_change' obj.pk %}" 
+                       class="btn btn-sm btn-primary">編集</a>
+                    {% if not obj.is_system_card %}
+                    <a href="{% url 'admin:production_dashboardcardsetting_delete' obj.pk %}" 
+                       class="btn btn-sm btn-outline-danger">削除</a>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Initialize Sortable
+    const tbody = document.getElementById('sortable-tbody');
+    if (tbody) {
+        const sortable = Sortable.create(tbody, {
+            handle: '.drag-handle',
+            animation: 150,
+            onEnd: function(evt) {
+                updateOrder();
+            }
+        });
+    }
+    
+    
+    // Update order function
+    function updateOrder() {
+        const rows = document.querySelectorAll('#sortable-tbody tr');
+        const updates = [];
+        
+        rows.forEach((row, index) => {
+            const id = row.dataset.id;
+            const newOrder = index + 1;
+            const orderDisplay = row.querySelector('.order-display');
+            
+            if (orderDisplay) {
+                orderDisplay.textContent = newOrder;
+            }
+            
+            updates.push({
+                id: id,
+                order: newOrder
+            });
+        });
+        
+        // Send AJAX request to update order
+        fetch('{% url "admin:production_dashboardcardsetting_changelist" %}update_order/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+            },
+            body: JSON.stringify({updates: updates})
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                console.log('Order updated successfully');
+            } else {
+                console.error('Failed to update order:', data.error);
+            }
+        })
+        .catch(error => {
+            console.error('Error updating order:', error);
+        });
+    }
+    
+});
+</script>
+{% endblock %}

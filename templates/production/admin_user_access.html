@@ -1,0 +1,482 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}ユーザー アクセス管理 - {{ block.super }}{% endblock %}
+
+{% block breadcrumb %}
+<li class="breadcrumb-item active">ユーザー アクセス管理</li>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+    .user-card {
+        cursor: pointer;
+        transition: all 0.3s ease;
+        border: 1px solid #dee2e6;
+    }
+    
+    .user-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+    }
+    
+    .user-card.selected {
+        border-color: #0d6efd;
+        background-color: rgba(13, 110, 253, 0.05);
+    }
+    
+    .line-card {
+        cursor: pointer;
+        transition: all 0.2s ease;
+        border: 2px solid transparent;
+        min-height: 80px;
+    }
+    
+    .line-card:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    
+    .line-card.selected {
+        border-color: #0d6efd;
+        background-color: rgba(13, 110, 253, 0.1);
+    }
+    
+    .line-card .card-body {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        text-align: center;
+        padding: 0.75rem;
+    }
+    
+    .line-name {
+        font-weight: bold;
+        font-size: 0.9rem;
+        margin-bottom: 0.25rem;
+    }
+    
+    .line-description {
+        font-size: 0.8rem;
+        color: #6c757d;
+    }
+    
+    .search-container {
+        position: relative;
+        margin-bottom: 1.5rem;
+    }
+    
+    .search-input {
+        padding-left: 2.5rem;
+    }
+    
+    .search-icon {
+        position: absolute;
+        left: 0.75rem;
+        top: 50%;
+        transform: translateY(-50%);
+        color: #6c757d;
+    }
+    
+    .user-info {
+        padding: 1rem;
+        background-color: #f8f9fa;
+        border-radius: 0.375rem;
+        margin-bottom: 1rem;
+    }
+    
+    .access-count-badge {
+        font-size: 0.75rem;
+    }
+    
+    .color-indicator {
+        width: 3px;
+        height: 100%;
+        position: absolute;
+        left: 0;
+        top: 0;
+        border-radius: 2px 0 0 2px;
+    }
+    
+    .line-card {
+        position: relative;
+        overflow: hidden;
+    }
+    
+    .bulk-controls {
+        margin-bottom: 1rem;
+    }
+    
+    .no-user-selected {
+        text-align: center;
+        padding: 3rem;
+        color: #6c757d;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <!-- ユーザー一覧 -->
+        <div class="col-md-4">
+            <div class="card shadow-sm">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="bi bi-people-fill me-2"></i>
+                        ユーザー一覧
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <!-- ユーザー検索 -->
+                    <div class="search-container">
+                        <div class="position-relative">
+                            <i class="bi bi-search search-icon"></i>
+                            <input type="text" 
+                                   id="user-search" 
+                                   class="form-control search-input" 
+                                   placeholder="ユーザー名で検索...">
+                        </div>
+                    </div>
+                    
+                    <!-- ユーザーリスト -->
+                    <div id="users-container">
+                        {% for user_data in user_access_data %}
+                        <div class="user-card mb-2 p-3 rounded user-item" 
+                             data-user-id="{{ user_data.user.id }}"
+                             data-username="{{ user_data.user.username|lower }}">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div>
+                                    <div class="fw-bold">{{ user_data.user.username }}</div>
+                                    {% if user_data.user.first_name or user_data.user.last_name %}
+                                    <small class="text-muted">
+                                        {{ user_data.user.first_name }} {{ user_data.user.last_name }}
+                                    </small>
+                                    {% endif %}
+                                </div>
+                                <div>
+                                    <span class="badge bg-primary access-count-badge">
+                                        {{ user_data.line_count }} ライン
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                        {% empty %}
+                        <div class="text-center text-muted">
+                            <i class="bi bi-person-x fs-1 mb-3"></i>
+                            <p>ユーザーが見つかりません</p>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- ライン アクセス設定 -->
+        <div class="col-md-8">
+            <div class="card shadow-sm">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="bi bi-gear-fill me-2"></i>
+                        ライン アクセス設定
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div id="no-user-selected" class="no-user-selected">
+                        <i class="bi bi-person-gear fs-1 mb-3"></i>
+                        <h5>ユーザーを選択してください</h5>
+                        <p>左側のユーザー一覧からユーザーを選択すると、ライン アクセス設定を編集できます。</p>
+                    </div>
+                    
+                    <div id="user-access-config" style="display: none;">
+                        <!-- 選択されたユーザー情報 -->
+                        <div class="user-info">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div>
+                                    <h6 class="mb-1" id="selected-username">ユーザー名</h6>
+                                    <small class="text-muted">ライン アクセス権限を設定</small>
+                                </div>
+                                <div>
+                                    <span class="badge bg-info" id="selected-user-count">0</span> 個選択中
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- 一括選択コントロール -->
+                        <div class="bulk-controls">
+                            <div class="d-flex gap-2 flex-wrap">
+                                <button type="button" class="btn btn-outline-primary btn-sm" id="select-all-lines-btn">
+                                    <i class="bi bi-check-square me-1"></i>すべて選択
+                                </button>
+                                <button type="button" class="btn btn-outline-secondary btn-sm" id="deselect-all-lines-btn">
+                                    <i class="bi bi-square me-1"></i>すべて解除
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <!-- ライン一覧 -->
+                        <div class="row" id="lines-container">
+                            {% for line in all_lines %}
+                            <div class="col-md-6 col-lg-4 mb-3">
+                                <div class="card line-card h-100" data-line-id="{{ line.id }}">
+                                    <div class="color-indicator" data-line-name="{{ line.name }}"></div>
+                                    <div class="card-body">
+                                        <div class="line-name">{{ line.name }}</div>
+                                        {% if line.description %}
+                                        <div class="line-description">{{ line.description }}</div>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        
+                        <!-- 保存ボタン -->
+                        <div class="d-grid gap-2 d-md-flex justify-content-md-end mt-3">
+                            <button type="button" class="btn btn-primary" id="save-user-access-btn">
+                                <i class="bi bi-check-lg me-1"></i>
+                                <span class="btn-text">設定を保存</span>
+                                <span class="spinner-border spinner-border-sm d-none" role="status"></span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const userCards = document.querySelectorAll('.user-card');
+    const lineCards = document.querySelectorAll('.line-card');
+    const userSearch = document.getElementById('user-search');
+    const selectAllLinesBtn = document.getElementById('select-all-lines-btn');
+    const deselectAllLinesBtn = document.getElementById('deselect-all-lines-btn');
+    const selectedUserCount = document.getElementById('selected-user-count');
+    const saveUserAccessBtn = document.getElementById('save-user-access-btn');
+    const noUserSelected = document.getElementById('no-user-selected');
+    const userAccessConfig = document.getElementById('user-access-config');
+    const selectedUsername = document.getElementById('selected-username');
+    
+    let currentUserId = null;
+    let currentUserLineIds = [];
+    
+    // 色生成関数
+    function getLineCardColor(lineName) {
+        const firstChar = lineName.charAt(0).toUpperCase();
+        const colors = [
+            '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7',
+            '#DDA0DD', '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E9'
+        ];
+        const index = firstChar.charCodeAt(0) % colors.length;
+        return colors[index];
+    }
+    
+    // 色インジケーターを設定
+    document.querySelectorAll('.color-indicator').forEach(indicator => {
+        const lineName = indicator.getAttribute('data-line-name');
+        const color = getLineCardColor(lineName);
+        indicator.style.backgroundColor = color;
+    });
+    
+    // 選択数の更新
+    function updateSelectedCount() {
+        const selectedCards = document.querySelectorAll('.line-card.selected');
+        selectedUserCount.textContent = selectedCards.length;
+    }
+    
+    // ライン選択状態をリセット
+    function resetLineSelection() {
+        lineCards.forEach(card => {
+            card.classList.remove('selected');
+        });
+        updateSelectedCount();
+    }
+    
+    // ユーザーのライン アクセス権限を設定
+    function setUserLineAccess(lineIds) {
+        resetLineSelection();
+        lineIds.forEach(lineId => {
+            const card = document.querySelector(`[data-line-id="${lineId}"]`);
+            if (card) {
+                card.classList.add('selected');
+            }
+        });
+        updateSelectedCount();
+    }
+    
+    // ユーザー選択イベント
+    userCards.forEach(card => {
+        card.addEventListener('click', function() {
+            // 他のユーザーカードの選択を解除
+            userCards.forEach(c => c.classList.remove('selected'));
+            
+            // 現在のカードを選択
+            this.classList.add('selected');
+            
+            // ユーザー情報を取得
+            currentUserId = this.getAttribute('data-user-id');
+            const username = this.querySelector('.fw-bold').textContent;
+            
+            // UI更新
+            selectedUsername.textContent = username;
+            noUserSelected.style.display = 'none';
+            userAccessConfig.style.display = 'block';
+            
+            // ユーザーのライン アクセス権限を取得
+            fetch(`/production/api/admin/user-access/?user_id=${currentUserId}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        currentUserLineIds = data.line_ids;
+                        setUserLineAccess(currentUserLineIds);
+                    } else {
+                        console.error('ユーザー アクセス情報の取得に失敗:', data.message);
+                    }
+                })
+                .catch(error => {
+                    console.error('API エラー:', error);
+                });
+        });
+    });
+    
+    // ライン選択イベント
+    lineCards.forEach(card => {
+        card.addEventListener('click', function() {
+            if (!currentUserId) return;
+            
+            const isSelected = this.classList.contains('selected');
+            
+            if (isSelected) {
+                this.classList.remove('selected');
+            } else {
+                this.classList.add('selected');
+            }
+            
+            updateSelectedCount();
+        });
+    });
+    
+    // ユーザー検索
+    userSearch.addEventListener('input', function() {
+        const searchTerm = this.value.toLowerCase().trim();
+        const userItems = document.querySelectorAll('.user-item');
+        
+        userItems.forEach(item => {
+            const username = item.getAttribute('data-username');
+            const matches = username.includes(searchTerm);
+            
+            if (matches) {
+                item.style.display = '';
+            } else {
+                item.style.display = 'none';
+            }
+        });
+    });
+    
+    // すべて選択
+    selectAllLinesBtn.addEventListener('click', function() {
+        if (!currentUserId) return;
+        
+        lineCards.forEach(card => {
+            card.classList.add('selected');
+        });
+        updateSelectedCount();
+    });
+    
+    // すべて解除
+    deselectAllLinesBtn.addEventListener('click', function() {
+        if (!currentUserId) return;
+        
+        lineCards.forEach(card => {
+            card.classList.remove('selected');
+        });
+        updateSelectedCount();
+    });
+    
+    // 設定保存
+    saveUserAccessBtn.addEventListener('click', function() {
+        if (!currentUserId) return;
+        
+        // 選択されたライン IDを取得
+        const selectedCards = document.querySelectorAll('.line-card.selected');
+        const selectedLineIds = Array.from(selectedCards).map(card => 
+            parseInt(card.getAttribute('data-line-id'))
+        );
+        
+        // ボタンの状態を変更
+        const btnText = this.querySelector('.btn-text');
+        const spinner = this.querySelector('.spinner-border');
+        
+        btnText.textContent = '保存中...';
+        spinner.classList.remove('d-none');
+        this.disabled = true;
+        
+        // API呼び出し
+        fetch('/production/api/admin/user-access/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+            },
+            body: JSON.stringify({
+                user_id: currentUserId,
+                line_ids: selectedLineIds
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                // 成功メッセージを表示
+                const alertDiv = document.createElement('div');
+                alertDiv.className = 'alert alert-success alert-dismissible fade show';
+                alertDiv.innerHTML = `
+                    <i class="bi bi-check-circle-fill me-2"></i>
+                    ${data.message}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                `;
+                userAccessConfig.insertBefore(alertDiv, userAccessConfig.firstChild);
+                
+                // ユーザーカードのバッジを更新
+                const userCard = document.querySelector(`[data-user-id="${currentUserId}"]`);
+                const badge = userCard.querySelector('.access-count-badge');
+                badge.textContent = `${selectedLineIds.length} ライン`;
+            } else {
+                // エラーメッセージを表示
+                const alertDiv = document.createElement('div');
+                alertDiv.className = 'alert alert-danger alert-dismissible fade show';
+                alertDiv.innerHTML = `
+                    <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                    ${data.message}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                `;
+                userAccessConfig.insertBefore(alertDiv, userAccessConfig.firstChild);
+            }
+        })
+        .catch(error => {
+            console.error('保存エラー:', error);
+            const alertDiv = document.createElement('div');
+            alertDiv.className = 'alert alert-danger alert-dismissible fade show';
+            alertDiv.innerHTML = `
+                <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                保存中にエラーが発生しました。
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+            userAccessConfig.insertBefore(alertDiv, userAccessConfig.firstChild);
+        })
+        .finally(() => {
+            // ボタンの状態を元に戻す
+            btnText.textContent = '設定を保存';
+            spinner.classList.add('d-none');
+            this.disabled = false;
+        });
+    });
+});
+</script>
+
+<!-- CSRFトークン -->
+{% csrf_token %}
+{% endblock %}

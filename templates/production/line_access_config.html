@@ -1,0 +1,348 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}ライン アクセス設定 - {{ block.super }}{% endblock %}
+
+{% block breadcrumb %}
+<li class="breadcrumb-item active">ライン アクセス設定</li>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+    .line-card {
+        cursor: pointer;
+        transition: all 0.3s ease;
+        border: 2px solid transparent;
+        min-height: 120px;
+    }
+    
+    .line-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+    }
+    
+    .line-card.selected {
+        border-color: #0d6efd;
+        background-color: rgba(13, 110, 253, 0.1);
+    }
+    
+    .line-card .card-body {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        text-align: center;
+    }
+    
+    .line-name {
+        font-weight: bold;
+        font-size: 1.1rem;
+        margin-bottom: 0.5rem;
+    }
+    
+    .line-description {
+        font-size: 0.9rem;
+        color: #6c757d;
+    }
+    
+    .search-container {
+        position: relative;
+        margin-bottom: 2rem;
+    }
+    
+    .search-input {
+        padding-left: 2.5rem;
+    }
+    
+    .search-icon {
+        position: absolute;
+        left: 0.75rem;
+        top: 50%;
+        transform: translateY(-50%);
+        color: #6c757d;
+    }
+    
+    .bulk-controls {
+        margin-bottom: 1.5rem;
+    }
+    
+    .no-lines-message {
+        text-align: center;
+        padding: 3rem;
+        color: #6c757d;
+    }
+    
+    .save-button {
+        position: sticky;
+        bottom: 2rem;
+        z-index: 100;
+    }
+    
+    .color-indicator {
+        width: 4px;
+        height: 100%;
+        position: absolute;
+        left: 0;
+        top: 0;
+        border-radius: 2px 0 0 2px;
+    }
+    
+    .line-card {
+        position: relative;
+        overflow: hidden;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <div class="card shadow-lg border-0" style="border-radius: 15px; overflow: hidden;">
+                <div class="card-header bg-gradient" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none;">
+                    <div class="d-flex align-items-center justify-content-between">
+                        <div>
+                            <h4 class="mb-1 fw-bold">
+                                <i class="bi bi-shield-check me-2"></i>
+                                ライン アクセス権限
+                            </h4>
+                            <small class="opacity-75">生産ラインへのアクセス権限を設定</small>
+                        </div>
+                        <div class="text-end">
+                            <i class="bi bi-gear-wide-connected fs-1 opacity-25"></i>
+                        </div>
+                    </div>
+                </div>
+                <div class="card-body p-4">
+                    <!-- 説明テキスト -->
+                    <div class="mb-4 text-center">
+                        <p class="text-muted mb-0">
+                            <i class="bi bi-info-circle me-1"></i>
+                            アクセスしたいラインをクリックして選択してください
+                        </p>
+                    </div>
+                    
+                    <!-- 検索フィールド -->
+                    <div class="search-container">
+                        <div class="position-relative">
+                            <i class="bi bi-search search-icon"></i>
+                            <input type="text" 
+                                   id="line-search" 
+                                   class="form-control search-input" 
+                                   placeholder="ライン名または説明で検索...">
+                        </div>
+                    </div>
+                    
+                    <!-- 一括選択コントロール -->
+                    <div class="bulk-controls">
+                        <div class="d-flex gap-2 flex-wrap">
+                            <button type="button" class="btn btn-outline-primary btn-sm" id="select-all-btn">
+                                <i class="bi bi-check-square me-1"></i>すべて選択
+                            </button>
+                            <button type="button" class="btn btn-outline-secondary btn-sm" id="deselect-all-btn">
+                                <i class="bi bi-square me-1"></i>すべて解除
+                            </button>
+                            <div class="ms-auto">
+                                <span class="badge bg-info" id="selected-count">0</span> 個選択中
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- ライン一覧 -->
+                    <form method="post" id="line-access-form">
+                        {% csrf_token %}
+                        <div class="row" id="lines-container">
+                            {% for line in all_lines %}
+                            <div class="col-md-6 col-lg-4 col-xl-3 mb-3 line-item" 
+                                 data-line-name="{{ line.name|lower }}" 
+                                 data-line-description="{{ line.description|lower }}">
+                                <div class="card line-card h-100" 
+                                     data-line-id="{{ line.id }}"
+                                     {% if line.id in user_line_ids %}data-selected="true"{% endif %}>
+                                    <div class="color-indicator" data-line-name="{{ line.name }}"></div>
+                                    <div class="card-body">
+                                        <div class="line-name">{{ line.name }}</div>
+                                        {% if line.description %}
+                                        <div class="line-description">{{ line.description }}</div>
+                                        {% endif %}
+                                        <input type="checkbox" 
+                                               name="line_ids" 
+                                               value="{{ line.id }}" 
+                                               class="d-none line-checkbox"
+                                               {% if line.id in user_line_ids %}checked{% endif %}>
+                                    </div>
+                                </div>
+                            </div>
+                            {% empty %}
+                            <div class="col-12">
+                                <div class="no-lines-message">
+                                    <i class="bi bi-exclamation-circle fs-1 mb-3"></i>
+                                    <h5>利用可能なラインがありません</h5>
+                                    <p>管理者にお問い合わせください。</p>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        
+                        <!-- 検索結果なしメッセージ -->
+                        <div id="no-results-message" class="no-lines-message" style="display: none;">
+                            <i class="bi bi-search fs-1 mb-3"></i>
+                            <h5>検索結果が見つかりません</h5>
+                            <p>検索条件を変更してお試しください。</p>
+                        </div>
+                        
+                        {% if all_lines %}
+                        <!-- 保存ボタン -->
+                        <div class="save-button">
+                            <div class="d-grid gap-2 d-md-flex justify-content-md-end">
+                                <a href="{% url 'production:line_select' %}" class="btn btn-secondary">
+                                    <i class="bi bi-arrow-left me-1"></i>キャンセル
+                                </a>
+                                <button type="submit" class="btn btn-primary" id="save-btn">
+                                    <i class="bi bi-check-lg me-1"></i>
+                                    <span class="btn-text">設定を保存</span>
+                                    <span class="spinner-border spinner-border-sm d-none" role="status"></span>
+                                </button>
+                            </div>
+                        </div>
+                        {% endif %}
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const lineCards = document.querySelectorAll('.line-card');
+    const searchInput = document.getElementById('line-search');
+    const selectAllBtn = document.getElementById('select-all-btn');
+    const deselectAllBtn = document.getElementById('deselect-all-btn');
+    const selectedCountBadge = document.getElementById('selected-count');
+    const saveBtn = document.getElementById('save-btn');
+    const form = document.getElementById('line-access-form');
+    const linesContainer = document.getElementById('lines-container');
+    const noResultsMessage = document.getElementById('no-results-message');
+    
+    // 色生成関数
+    function getLineCardColor(lineName) {
+        const firstChar = lineName.charAt(0).toUpperCase();
+        const colors = [
+            '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7',
+            '#DDA0DD', '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E9'
+        ];
+        const index = firstChar.charCodeAt(0) % colors.length;
+        return colors[index];
+    }
+    
+    // 色インジケーターを設定
+    document.querySelectorAll('.color-indicator').forEach(indicator => {
+        const lineName = indicator.getAttribute('data-line-name');
+        const color = getLineCardColor(lineName);
+        indicator.style.backgroundColor = color;
+    });
+    
+    // 初期状態の設定
+    function initializeCards() {
+        lineCards.forEach(card => {
+            if (card.getAttribute('data-selected') === 'true') {
+                card.classList.add('selected');
+            }
+        });
+        updateSelectedCount();
+    }
+    
+    // 選択数の更新
+    function updateSelectedCount() {
+        const selectedCards = document.querySelectorAll('.line-card.selected');
+        selectedCountBadge.textContent = selectedCards.length;
+    }
+    
+    // カードクリックイベント
+    lineCards.forEach(card => {
+        card.addEventListener('click', function() {
+            const checkbox = this.querySelector('.line-checkbox');
+            const isSelected = this.classList.contains('selected');
+            
+            if (isSelected) {
+                this.classList.remove('selected');
+                checkbox.checked = false;
+            } else {
+                this.classList.add('selected');
+                checkbox.checked = true;
+            }
+            
+            updateSelectedCount();
+        });
+    });
+    
+    // 検索機能
+    searchInput.addEventListener('input', function() {
+        const searchTerm = this.value.toLowerCase().trim();
+        const lineItems = document.querySelectorAll('.line-item');
+        let visibleCount = 0;
+        
+        lineItems.forEach(item => {
+            const lineName = item.getAttribute('data-line-name');
+            const lineDescription = item.getAttribute('data-line-description');
+            const matches = lineName.includes(searchTerm) || lineDescription.includes(searchTerm);
+            
+            if (matches) {
+                item.style.display = '';
+                visibleCount++;
+            } else {
+                item.style.display = 'none';
+            }
+        });
+        
+        // 検索結果なしメッセージの表示/非表示
+        if (visibleCount === 0 && searchTerm !== '') {
+            linesContainer.style.display = 'none';
+            noResultsMessage.style.display = 'block';
+        } else {
+            linesContainer.style.display = '';
+            noResultsMessage.style.display = 'none';
+        }
+    });
+    
+    // すべて選択
+    selectAllBtn.addEventListener('click', function() {
+        const visibleCards = document.querySelectorAll('.line-item:not([style*="display: none"]) .line-card');
+        visibleCards.forEach(card => {
+            card.classList.add('selected');
+            card.querySelector('.line-checkbox').checked = true;
+        });
+        updateSelectedCount();
+    });
+    
+    // すべて解除
+    deselectAllBtn.addEventListener('click', function() {
+        const visibleCards = document.querySelectorAll('.line-item:not([style*="display: none"]) .line-card');
+        visibleCards.forEach(card => {
+            card.classList.remove('selected');
+            card.querySelector('.line-checkbox').checked = false;
+        });
+        updateSelectedCount();
+    });
+    
+    // フォーム送信
+    form.addEventListener('submit', function(e) {
+        // ボタンの状態を変更
+        const btnText = saveBtn.querySelector('.btn-text');
+        const spinner = saveBtn.querySelector('.spinner-border');
+        
+        btnText.textContent = '保存中...';
+        spinner.classList.remove('d-none');
+        saveBtn.disabled = true;
+        
+        // フォームの通常送信を許可（e.preventDefault()を削除）
+        // ページ遷移が正常に動作するようになります
+    });
+    
+    // 初期化
+    initializeCards();
+});
+</script>
+{% endblock %}

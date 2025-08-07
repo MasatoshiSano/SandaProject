@@ -8,6 +8,9 @@ from django.db.models.signals import post_save, post_delete
 from django.dispatch import receiver
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class Line(models.Model):
@@ -362,12 +365,55 @@ class WorkingDay(models.Model):
 
 
 class DashboardCardSetting(models.Model):
-    """ダッシュボードカード表示設定"""
-    name = models.CharField('カード名', max_length=100, unique=True)
-    is_visible = models.BooleanField('表示', default=True)
-    order = models.PositiveIntegerField('表示順', default=0)
-    alert_threshold_yellow = models.FloatField('黄色アラート閾値(%)', default=80.0)
-    alert_threshold_red = models.FloatField('赤色アラート閾値(%)', default=80.0)
+    """
+    ダッシュボードカード表示設定
+    
+    このモデルはダッシュボードに表示するカードの設定を管理します。
+    管理者が各カードの表示・非表示、表示順序、アラート閾値を設定できます。
+    """
+    name = models.CharField(
+        'カード名', 
+        max_length=100, 
+        unique=True,
+        help_text='ダッシュボードに表示されるカードの名前です。他のカードと重複しない一意の名前を設定してください。'
+    )
+    is_visible = models.BooleanField(
+        '表示', 
+        default=True,
+        help_text='チェックするとダッシュボードにこのカードが表示されます。チェックを外すとカードは非表示になります。'
+    )
+    order = models.PositiveIntegerField(
+        '表示順', 
+        default=0,
+        help_text='ダッシュボードでのカードの表示順序です。小さい数値ほど上に表示されます。同じ順序の場合はカード名順に並びます。'
+    )
+    description = models.TextField(
+        '説明', 
+        blank=True, 
+        help_text='このカードの詳細説明や用途を記載してください。管理画面でのメモとして使用されます。'
+    )
+    card_type = models.CharField(
+        'カードタイプ', 
+        max_length=50, 
+        unique=True,  # 一意制約を追加
+        default='unknown', 
+        help_text='カードの識別子です（例: total_planned, total_actual, achievement_rate）。システムが内部的に使用します。'
+    )
+    is_system_card = models.BooleanField(
+        'システムカード', 
+        default=False, 
+        help_text='システム標準のカードです。チェックされたカードは削除することができません。'
+    )
+    alert_threshold_yellow = models.FloatField(
+        '黄色アラート閾値(%)', 
+        default=80.0,
+        help_text='達成率がこの値を下回ると黄色のアラートが表示されます。0-100の範囲で設定してください。'
+    )
+    alert_threshold_red = models.FloatField(
+        '赤色アラート閾値(%)', 
+        default=80.0,
+        help_text='達成率がこの値を下回ると赤色のアラートが表示されます。通常は黄色閾値より低い値を設定します。'
+    )
     created_at = models.DateTimeField('作成日時', auto_now_add=True)
     updated_at = models.DateTimeField('更新日時', auto_now=True)
 
@@ -375,9 +421,56 @@ class DashboardCardSetting(models.Model):
         verbose_name = 'ダッシュボードカード設定'
         verbose_name_plural = 'ダッシュボードカード設定'
         ordering = ['order', 'name']
+        indexes = [
+            models.Index(fields=['is_visible', 'order']),
+            models.Index(fields=['card_type']),
+        ]
 
     def __str__(self):
-        return self.name
+        visibility = "表示" if self.is_visible else "非表示"
+        system_mark = "🔒" if self.is_system_card else ""
+        return f"{system_mark}{self.name} (表示順: {self.order}, {visibility})"
+    
+    def save(self, *args, **kwargs):
+        """カード設定保存時の処理"""
+        # キャッシュをクリア
+        from django.core.cache import cache
+        cache.delete('visible_dashboard_cards')
+        cache.delete('dashboard_visible_cards_config')
+        super().save(*args, **kwargs)
+    
+    def delete(self, *args, **kwargs):
+        """カード設定削除時の処理"""
+        # システムカードの削除を防ぐ
+        if self.is_system_card:
+            raise ValueError("システムカードは削除できません")
+        
+        # キャッシュをクリア
+        from django.core.cache import cache
+        cache.delete('visible_dashboard_cards')
+        cache.delete('dashboard_visible_cards_config')
+        super().delete(*args, **kwargs)
+    
+    
+    def save(self, *args, **kwargs):
+        """カード設定保存時の処理"""
+        # キャッシュをクリア
+        from django.core.cache import cache
+        cache.delete('visible_dashboard_cards')
+        cache.delete('dashboard_visible_cards_config')
+        super().save(*args, **kwargs)
+    
+    def delete(self, *args, **kwargs):
+        """カード設定削除時の処理"""
+        # システムカードの削除を防ぐ
+        if self.is_system_card:
+            raise ValueError("システムカードは削除できません")
+        
+        # キャッシュをクリア
+        from django.core.cache import cache
+        cache.delete('visible_dashboard_cards')
+        cache.delete('dashboard_visible_cards_config')
+        super().delete(*args, **kwargs)
 
 
 class PlannedHourlyProduction(models.Model):

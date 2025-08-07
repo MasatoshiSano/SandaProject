@@ -65,6 +65,9 @@ MIDDLEWARE = [
     
     # allauth middleware
     'allauth.account.middleware.AccountMiddleware',
+    
+    # ライン アクセス チェック
+    'production.middleware.LineAccessRedirectMiddleware',
 ]
 
 ROOT_URLCONF = 'config.urls'

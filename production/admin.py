@@ -230,10 +230,94 @@ class WorkingDayAdmin(admin.ModelAdmin):
 
 @admin.register(DashboardCardSetting)
 class DashboardCardSettingAdmin(admin.ModelAdmin):
-    list_display = ['name', 'is_visible', 'order', 'alert_threshold_yellow', 'alert_threshold_red']
-    list_filter = ['is_visible']
-    search_fields = ['name']
+    list_display = ['name', 'is_visible', 'order', 'card_type', 'is_system_card']
+    list_filter = ['is_visible', 'is_system_card', 'card_type']
+    search_fields = ['name', 'description', 'card_type']
     ordering = ['order', 'name']
+    change_list_template = 'admin/production/dashboardcardsetting/change_list.html'
+    
+    fieldsets = [
+        ('基本情報', {
+            'fields': ['name', 'card_type', 'description', 'is_system_card'],
+            'description': 'カードの基本的な設定を行います。システムカードは削除できません。'
+        }),
+        ('表示設定', {
+            'fields': ['is_visible', 'order'],
+            'description': 'ダッシュボードでのカードの表示・非表示と表示順序を設定します。'
+        }),
+        ('アラート設定', {
+            'fields': ['alert_threshold_yellow', 'alert_threshold_red'],
+            'classes': ['collapse'],
+            'description': '達成率に基づくアラート表示の閾値を設定します。'
+        }),
+        ('履歴', {
+            'fields': ['created_at', 'updated_at'],
+            'classes': ['collapse']
+        })
+    ]
+    readonly_fields = ['created_at', 'updated_at']
+    
+    def get_readonly_fields(self, request, obj=None):
+        """システムカードの場合は削除を防ぐため一部フィールドを読み取り専用にする"""
+        readonly_fields = list(self.readonly_fields)
+        if obj and obj.is_system_card:
+            readonly_fields.extend(['card_type'])
+        return readonly_fields
+    
+    def has_delete_permission(self, request, obj=None):
+        """システムカードは削除不可"""
+        if obj and obj.is_system_card:
+            return False
+        return super().has_delete_permission(request, obj)
+    
+    def get_urls(self):
+        """カスタムURLを追加"""
+        from django.urls import path
+        urls = super().get_urls()
+        custom_urls = [
+            path('update_order/', self.admin_site.admin_view(self.update_order_view), name='dashboardcardsetting_update_order'),
+        ]
+        return custom_urls + urls
+    
+    def update_order_view(self, request):
+        """AJAX経由でカードの順序を更新"""
+        import json
+        from django.http import JsonResponse
+        from django.views.decorators.csrf import csrf_exempt
+        from django.utils.decorators import method_decorator
+        
+        if request.method == 'POST':
+            try:
+                data = json.loads(request.body)
+                updates = data.get('updates', [])
+                
+                for update in updates:
+                    card_id = update.get('id')
+                    new_order = update.get('order')
+                    
+                    if card_id and new_order is not None:
+                        DashboardCardSetting.objects.filter(id=card_id).update(order=new_order)
+                
+                return JsonResponse({'success': True})
+            
+            except Exception as e:
+                return JsonResponse({'success': False, 'error': str(e)})
+        
+        return JsonResponse({'success': False, 'error': 'Invalid request method'})
+    
+    actions = ['enable_cards', 'disable_cards']
+    
+    def enable_cards(self, request, queryset):
+        """選択したカードを表示状態にする"""
+        count = queryset.update(is_visible=True)
+        self.message_user(request, f'{count}件のカードを表示状態に変更しました。')
+    enable_cards.short_description = '選択したカードを表示する'
+    
+    def disable_cards(self, request, queryset):
+        """選択したカードを非表示状態にする"""
+        count = queryset.update(is_visible=False)
+        self.message_user(request, f'{count}件のカードを非表示状態に変更しました。')
+    disable_cards.short_description = '選択したカードを非表示にする'
 
 
 @admin.register(UserPreference)

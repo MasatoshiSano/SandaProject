@@ -60,6 +60,7 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'allauth.account.middleware.AccountMiddleware',
+    'production.middleware.LineAccessRedirectMiddleware',  # ライン アクセス チェック
 ]
 
 ROOT_URLCONF = 'config.urls'

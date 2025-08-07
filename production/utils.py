@@ -73,6 +73,84 @@ def get_count_target_machines(line_id):
     return machines
 
 
+def calculate_input_count(line_id, date_str):
+    """
+    投入数を計算する
+    
+    Args:
+        line_id (int): ライン ID
+        date_str (str): 日付文字列 (YYYY-MM-DD形式)
+        
+    Returns:
+        int: 投入数（全判定を含む）
+    """
+    try:
+        # 日付文字列を date に変換
+        try:
+            date = datetime.strptime(date_str, '%Y-%m-%d').date()
+        except ValueError:
+            logger.error(f"無効な日付形式: {date_str}")
+            return 0
+        
+        # Line オブジェクト取得
+        try:
+            line = Line.objects.get(id=line_id)
+            line_name = line.name
+        except Line.DoesNotExist:
+            logger.error(f"ライン ID {line_id} が見つかりません")
+            return 0
+        
+        # WorkCalendarからwork_start_timeを取得
+        try:
+            work_calendar = WorkCalendar.objects.get(line_id=line_id)
+            work_start_time = work_calendar.work_start_time
+        except WorkCalendar.DoesNotExist:
+            logger.warning(f"ライン ID {line_id} のWorkCalendarが見つかりません。デフォルト値を使用します")
+            work_start_time = time(8, 30)  # デフォルト値
+        
+        # 投入数対象設備を取得
+        input_count_machines = Machine.objects.filter(
+            line_id=line_id, 
+            is_count_target=True,
+            is_active=True
+        )
+        
+        if not input_count_machines.exists():
+            logger.info(f"ライン ID {line_id} に投入数対象設備がありません")
+            return 0
+        
+        input_count_machine_names = [m.name for m in input_count_machines]
+        logger.info(f"投入数対象設備: {input_count_machine_names}")
+        
+        # 時間期間を計算
+        actual_work_start = datetime.combine(date, work_start_time)
+        next_day_work_start = actual_work_start + timedelta(days=1)
+        
+        # Oracleテーブルのtimestampは文字列形式（YYYYMMDDhhmmss）
+        start_str = actual_work_start.strftime('%Y%m%d%H%M%S')
+        end_str = next_day_work_start.strftime('%Y%m%d%H%M%S')
+        
+        logger.info(f"投入数計算期間: {start_str} - {end_str}")
+        
+        # 投入数を計算（全判定を含む - OK/NG両方）
+        input_results = Result.objects.filter(
+            line=line_name,
+            machine__in=input_count_machine_names,
+            timestamp__gte=start_str,
+            timestamp__lt=end_str,
+            sta_no1='SAND'  # フィルタ条件
+        )
+        
+        input_count = input_results.count()
+        logger.info(f"投入数: {input_count}")
+        
+        return input_count
+        
+    except Exception as e:
+        logger.error(f"投入数計算エラー: {e}")
+        return 0
+
+
 def get_dashboard_data(line_id, date_str):
     """ダッシュボード用のデータを取得"""
     # --- 1. Line オブジェクト／名称取得 ---
@@ -93,14 +171,29 @@ def get_dashboard_data(line_id, date_str):
     count_target_machine_names = [m.name for m in count_target_machines]
     
     # --- 5. 実績(Result)の取得（カウント対象設備のみ） ---
+    # WorkCalendarからwork_start_timeを取得
+    try:
+        work_calendar = WorkCalendar.objects.get(line_id=line_id)
+        work_start_time = work_calendar.work_start_time
+        morning_meeting_duration = work_calendar.morning_meeting_duration
+    except WorkCalendar.DoesNotExist:
+        work_start_time = time(8, 30)  # デフォルト値
+        morning_meeting_duration = 15
+    
+    # 実際の作業開始時刻（朝礼時間を考慮）
+    actual_work_start = datetime.combine(date, work_start_time) + timedelta(minutes=morning_meeting_duration)
+    # 翌日の作業開始時刻まで
+    next_day_work_start = actual_work_start + timedelta(days=1)
+    
     # Oracleテーブルのtimestampは文字列形式（YYYYMMDDhhmmss）
-    start_str = date.strftime('%Y%m%d') + '000000'  # 日付の開始時刻
-    end_str = date.strftime('%Y%m%d') + '235959'    # 日付の終了時刻
+    start_str = actual_work_start.strftime('%Y%m%d%H%M%S')
+    end_str = next_day_work_start.strftime('%Y%m%d%H%M%S')
+    
     results = Result.objects.filter(
         line=line_name,
         machine__in=count_target_machine_names,  # カウント対象設備のみ
         timestamp__gte=start_str,
-        timestamp__lte=end_str,
+        timestamp__lt=end_str,  # 翌日の開始時刻未満
         judgment='1',  # Oracle形式（1=OK, 2=NG）
         sta_no1='SAND'  # フィルタ条件
     )
@@ -159,12 +252,20 @@ def get_dashboard_data(line_id, date_str):
     )
     remaining = max(0, total_planned - total_actual)
 
-    # --- 8. 結果返却 ---
+    # --- 8. 投入数計算 ---
+    try:
+        input_count = calculate_input_count(line_id, date_str)
+    except Exception as e:
+        logger.error(f"ダッシュボード投入数計算エラー: {e}")
+        input_count = 0  # フォールバック値
+
+    # --- 9. 結果返却 ---
     return {
         'parts': list(part_data.values()),
         'hourly': hourly_data,
         'total_planned': total_planned,
         'total_actual': total_actual,
+        'input_count': input_count,
         'achievement_rate': achievement_rate,
         'remaining': remaining,
         'last_updated': timezone.now().isoformat(),
@@ -354,11 +455,15 @@ def generate_hourly_data_machine_based(line_id, date, plans, active_machines, re
             timestamp__gte=result_start_str,
             timestamp__lt=aware_end_str
         )
-        part_counts = hour_qs.values('part').annotate(count=Count('serial_number'))
+        
+        # レコード数をカウント（ダッシュボードの実績数と一致させる）
+        from django.db.models import Count
+        part_counts = hour_qs.values('part').annotate(record_count=Count('serial_number'))
         for pc in part_counts:
             # partフィールドから機種名を直接取得
             pname = pc['part']
-            cnt   = pc['count']
+            qty = pc['record_count'] or 0
+            
             # Part オブジェクトを経由して ID と色を取得
             try:
                 part_obj = Part.objects.get(name=pname)
@@ -376,8 +481,8 @@ def generate_hourly_data_machine_based(line_id, date, plans, active_machines, re
                 }
 
             # 実績を加算
-            hour_record['parts'][pid]['actual']   += cnt
-            hour_record['total_actual']           += cnt
+            hour_record['parts'][pid]['actual']   += qty
+            hour_record['total_actual']           += qty
 
         hourly_data.append(hour_record)
 
@@ -465,6 +570,120 @@ def get_accessible_lines(user):
         return [MockUserLineAccess(line) for line in lines]
     
     return UserLineAccess.objects.filter(user=user).select_related('line')
+
+
+def has_line_access(user):
+    """ユーザーがライン アクセス権限を持っているかチェック"""
+    from .models import UserLineAccess
+    
+    # 管理者（スーパーユーザー）の場合は常にアクセス可能
+    if user.is_superuser:
+        return True
+    
+    # 一般ユーザーの場合はUserLineAccessレコードの存在をチェック
+    return UserLineAccess.objects.filter(user=user).exists()
+
+
+def get_user_line_access(user):
+    """ユーザーのライン アクセス権限を取得"""
+    from .models import UserLineAccess, Line
+    
+    # 管理者（スーパーユーザー）の場合は全てのアクティブなラインを返す
+    if user.is_superuser:
+        return Line.objects.filter(is_active=True)
+    
+    # 一般ユーザーの場合はUserLineAccessから取得
+    return Line.objects.filter(
+        userlineaccess__user=user,
+        is_active=True
+    ).distinct()
+
+
+def update_user_line_access(user, line_ids):
+    """ユーザーのライン アクセス権限を更新"""
+    from .models import UserLineAccess, Line
+    from django.db import transaction
+    
+    # 管理者の場合は更新しない（常に全アクセス権限を持つため）
+    if user.is_superuser:
+        return True
+    
+    try:
+        with transaction.atomic():
+            # 既存のアクセス権限を削除
+            UserLineAccess.objects.filter(user=user).delete()
+            
+            # 新しいアクセス権限を作成
+            if line_ids:
+                # 有効なラインIDのみを処理
+                valid_lines = Line.objects.filter(id__in=line_ids, is_active=True)
+                access_objects = [
+                    UserLineAccess(user=user, line=line)
+                    for line in valid_lines
+                ]
+                UserLineAccess.objects.bulk_create(access_objects)
+            
+            return True
+    except Exception as e:
+        logger.error(f"ライン アクセス権限の更新に失敗: {e}")
+        return False
+
+
+def has_line_access(user):
+    """ユーザーがライン アクセス権限を持っているかチェック"""
+    from .models import UserLineAccess
+    
+    # 管理者（スーパーユーザー）は常にアクセス権限を持つ
+    if user.is_superuser:
+        return True
+    
+    # 一般ユーザーはUserLineAccessレコードの存在をチェック
+    return UserLineAccess.objects.filter(user=user).exists()
+
+
+def get_user_line_access(user):
+    """ユーザーのライン アクセス権限を全て取得"""
+    from .models import UserLineAccess, Line
+    
+    # 管理者（スーパーユーザー）の場合は全てのアクティブなラインを返す
+    if user.is_superuser:
+        return Line.objects.filter(is_active=True)
+    
+    # 一般ユーザーの場合はUserLineAccessから取得
+    return Line.objects.filter(
+        userlineaccess__user=user,
+        is_active=True
+    ).distinct()
+
+
+def update_user_line_access(user, line_ids):
+    """ユーザーのライン アクセス権限を一括更新"""
+    from .models import UserLineAccess, Line
+    from django.db import transaction
+    
+    # 管理者の場合は更新しない（常に全アクセス権限を持つため）
+    if user.is_superuser:
+        return True
+    
+    try:
+        with transaction.atomic():
+            # 既存のアクセス権限を削除
+            UserLineAccess.objects.filter(user=user).delete()
+            
+            # 新しいアクセス権限を作成
+            if line_ids:
+                # 有効なラインIDのみを処理
+                valid_lines = Line.objects.filter(id__in=line_ids, is_active=True)
+                access_objects = [
+                    UserLineAccess(user=user, line=line)
+                    for line in valid_lines
+                ]
+                UserLineAccess.objects.bulk_create(access_objects)
+            
+            return True
+    except Exception as e:
+        logger.error(f"ライン アクセス権限の更新に失敗: {e}")
+        return False
 
 
 def is_working_day(date):
@@ -1274,6 +1493,34 @@ def _get_monthly_graph_data_legacy(line_id, date):
         'available_parts': available_parts,
         'part_analysis': part_analysis,
     }
+
+
+def get_visible_dashboard_cards():
+    """表示設定されたダッシュボードカードを取得"""
+    from .models import DashboardCardSetting
+    from django.core.cache import cache
+    
+    cache_key = 'visible_dashboard_cards'
+    cached_cards = cache.get(cache_key)
+    
+    if cached_cards is not None:
+        return cached_cards
+    
+    cards = list(DashboardCardSetting.objects.filter(is_visible=True).order_by('order'))
+    cache.set(cache_key, cards, 300)  # 5分キャッシュ
+    
+    return cards
+
+
+def is_valid_card_type(card_type):
+    """カードタイプが有効かどうかを検証"""
+    from .dashboard_cards import DASHBOARD_CARDS
+    return card_type in DASHBOARD_CARDS
+
+
+def get_dashboard_context(line_id, date_str):
+    """ダッシュボードコンテキストデータを取得（テスト用）"""
+    return get_dashboard_data(line_id, date_str)
 
 
 def calculate_planned_pph_for_date(line_id, date):

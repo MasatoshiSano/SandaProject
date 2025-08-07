@@ -21,7 +21,19 @@
             background-color: #ffffff !important;
             border: 1px solid rgba(0,0,0,.15) !important;
             box-shadow: 0 .5rem 1rem rgba(0,0,0,.15) !important;
-            z-index: 9999 !important; /* 透明問題修正 */
+            z-index: 100000 !important; /* ダッシュボードの要素より高いz-indexで最前面に表示 */
+            position: absolute !important; /* 確実にポジショニング */
+        }
+        
+        /* ナビゲーションバーのドロップダウンを特に高いz-indexに設定 */
+        .navbar .dropdown-menu {
+            z-index: 100000 !important;
+        }
+        
+        /* ユーザーメニューのドロップダウンを最優先で表示 */
+        .navbar-nav .dropdown-menu {
+            z-index: 100000 !important;
+            position: absolute !important;
         }
         
         .dropdown-item {
@@ -35,6 +47,36 @@
         
         .dropdown-divider {
             border-top: 1px solid rgba(0,0,0,.15) !important;
+        }
+        
+        /* ドロップダウンが開いているときの親要素のz-index調整 */
+        .dropdown.show {
+            z-index: 99999 !important;
+        }
+        
+        /* ナビゲーションバー全体のz-index調整 */
+        .navbar {
+            z-index: 1030 !important;
+        }
+        
+        /* ダークモード対応 */
+        [data-bs-theme="dark"] .dropdown-menu {
+            background-color: #1e293b !important;
+            border: 1px solid #374151 !important;
+            z-index: 100000 !important;
+        }
+        
+        [data-bs-theme="dark"] .dropdown-item {
+            color: #f1f5f9 !important;
+        }
+        
+        [data-bs-theme="dark"] .dropdown-item:hover {
+            background-color: #374151 !important;
+            color: #ffffff !important;
+        }
+        
+        [data-bs-theme="dark"] .dropdown-divider {
+            border-top: 1px solid #4b5563 !important;
         }
     </style>
     
@@ -149,10 +191,16 @@
                             <li><a class="dropdown-item" href="/admin/">
                                 <i class="bi bi-gear-fill me-2"></i>Django管理画面
                             </a></li>
+                            <li><a class="dropdown-item" href="{% url 'production:admin_user_access' %}">
+                                <i class="bi bi-people-fill me-2"></i>ユーザー アクセス管理
+                            </a></li>
                             <li><hr class="dropdown-divider"></li>
                             {% endif %}
                             <li><a class="dropdown-item" href="{% url 'production:line_select' %}">
                                 <i class="bi bi-arrow-left-right me-2"></i>ライン切替
+                            </a></li>
+                            <li><a class="dropdown-item" href="{% url 'production:line_access_config' %}">
+                                <i class="bi bi-gear me-2"></i>ライン アクセス設定
                             </a></li>
                             <li><hr class="dropdown-divider"></li>
                             <li><a class="dropdown-item" href="{% url 'account_logout' %}">

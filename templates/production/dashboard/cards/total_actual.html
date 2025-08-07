@@ -1,0 +1,13 @@
+<div class="col-12 col-md-6 col-xl-3 mb-3">
+    <div class="card metric-card border-success">
+        <div class="card-body text-center">
+            <div class="metric-value text-success" id="total-actual">
+                {{ dashboard_data.total_actual|default:0 }}
+            </div>
+            <div class="metric-label text-muted">{{ card_config.name }}</div>
+            <small class="text-muted">
+                <i class="bi bi-check-circle me-1"></i>完了
+            </small>
+        </div>
+    </div>
+</div>

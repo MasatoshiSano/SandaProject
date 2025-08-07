@@ -66,8 +66,8 @@
         <div class="card mt-4 fade-in">
             <div class="card-header">
                 <h5 class="mb-0">
-                    <i class="bi bi-list-check me-2"></i>
-                    アクセス可能ライン
+                    <i class="bi bi-heart-fill me-2 text-danger"></i>
+                    お気に入りライン
                 </h5>
             </div>
             <div class="card-body">
@@ -102,6 +102,12 @@
             </div>
             <div class="card-body">
                 <div class="row g-3">
+                    <div class="col-md-6">
+                        <a href="{% url 'production:line_access_config' %}" class="btn btn-outline-danger w-100">
+                            <i class="bi bi-shield-check me-2"></i>
+                            ライン アクセス設定
+                        </a>
+                    </div>
                     <div class="col-md-6">
                         <a href="{% url 'production:part_list' %}" class="btn btn-outline-primary w-100">
                             <i class="bi bi-box me-2"></i>
@@ -146,8 +152,8 @@
                 <div class="row text-center">
                     <div class="col-md-3">
                         <div class="stat-card p-3 rounded">
-                            <div class="stat-value text-primary">{{ accessible_lines|length }}</div>
-                            <div class="stat-label text-muted">アクセス可能ライン</div>
+                            <div class="stat-value text-danger">{{ accessible_lines|length }}</div>
+                            <div class="stat-label text-muted">お気に入りライン</div>
                         </div>
                     </div>
                     <div class="col-md-3">
