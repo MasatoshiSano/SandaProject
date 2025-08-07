@@ -765,7 +765,7 @@ def schedule_full_reaggregation(line_id: int, target_date) -> bool:
 
 def get_weekly_graph_data(line_id, date):
     """
-    週別グラフデータを取得（集計サービス使用版）
+    週別グラフデータを取得（WeeklyResultAggregationのみ使用）
     
     Args:
         line_id: ライン ID
@@ -776,19 +776,20 @@ def get_weekly_graph_data(line_id, date):
     """
     import logging
     from .services import WeeklyAnalysisService
-    from .models import Part, Line
     
     logger = logging.getLogger(__name__)
     
     try:
-        # WeeklyAnalysisServiceは複雑すぎるため、直接フォールバック処理を使用
-        logger.info(f"週別グラフデータ取得: フォールバック処理を使用 - line_id={line_id}")
-        return _get_fallback_weekly_data(line_id, date)
+        # WeeklyAnalysisServiceの完全版を使用
+        logger.info(f"週別グラフデータ取得: WeeklyAnalysisService完全版を使用 - line_id={line_id}")
+        service = WeeklyAnalysisService()
+        return service.get_complete_weekly_data(line_id, date)
         
     except Exception as e:
         logger.error(f"週別グラフデータ取得エラー: {e}")
-        # フォールバック: 既存の方法でデータを取得
-        return _get_fallback_weekly_data(line_id, date)
+        # エラー時は空のデータ構造を返す
+        service = WeeklyAnalysisService()
+        return service._get_empty_data_structure()
 
 
 def _get_fallback_weekly_data(line_id, date):
@@ -1203,17 +1204,15 @@ def get_monthly_graph_data(line_id, date):
     logger.info(f"月別グラフデータ取得開始: line_id={line_id}, date={date}")
     
     try:
-        # 基本データ取得
-        base_data = _get_monthly_data_from_aggregation(line_id, date)
-        monthly_data = base_data['monthly_data']
-        monthly_stats = base_data['monthly_stats']
-        line_name = base_data['line_name']
-        month_dates = base_data['month_dates']
+        # WeeklyAnalysisServiceの完全版を使用
+        from .services import WeeklyAnalysisService
+        service = WeeklyAnalysisService()
+        complete_data = service.get_complete_monthly_data(line_id, date.year, date.month)
         
-        # 機種別分析データ取得
-        part_data = _calculate_monthly_part_analysis(line_name, month_dates)
-        available_parts = part_data['available_parts']
-        part_analysis = part_data['part_analysis']
+        monthly_data = complete_data['daily_data']
+        monthly_stats = complete_data['monthly_stats']
+        available_parts = complete_data['available_parts']
+        part_analysis = []  # 簡略化
         
         # 累計データ計算
         cumulative_planned = []
@@ -1228,13 +1227,11 @@ def get_monthly_graph_data(line_id, date):
             cumulative_actual.append(actual_sum)
         
         # チャートデータ生成
-        chart_data = {
-            'labels': [d['date_display'] for d in monthly_data],
-            'planned': [d['planned'] for d in monthly_data],
-            'actual': [d['actual'] for d in monthly_data],
+        chart_data = complete_data['chart_data']
+        chart_data.update({
             'cumulative_planned': cumulative_planned,
             'cumulative_actual': cumulative_actual,
-        }
+        })
         
         # カレンダーデータ（ヒートマップ用）
         calendar_data = []

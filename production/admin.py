@@ -423,13 +423,13 @@ class FeedbackAdmin(admin.ModelAdmin):
 class WeeklyResultAggregationAdmin(admin.ModelAdmin):
     """週別実績集計の管理者画面（読み取り専用）"""
     list_display = [
-        'date', 'line', 'part', 'judgment', 'total_quantity', 
+        'date', 'line', 'part', 'machine', 'judgment', 'total_quantity', 
         'result_count', 'last_updated_formatted'
     ]
-    list_filter = ['date', 'line', 'part', 'judgment', 'last_updated']
-    search_fields = ['line', 'part']
+    list_filter = ['date', 'line', 'machine', 'part', 'judgment', 'last_updated']
+    search_fields = ['line', 'machine', 'part']
     date_hierarchy = 'date'
-    ordering = ['-date', 'line', 'part', 'judgment']
+    ordering = ['-date', 'line', 'machine', 'part', 'judgment']
     list_per_page = 50
     
     # 全フィールドを読み取り専用に設定

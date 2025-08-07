@@ -102,16 +102,21 @@ class AggregationService:
             self.logger.info(f"集計期間: {start_datetime} ～ {end_datetime}")
             
             # 実績データを機種・設備・判定別に集計
+            # timestampは文字列形式（YYYYMMDDhhmmss）なので文字列比較で範囲指定
+            start_timestamp_str = start_datetime.strftime('%Y%m%d%H%M%S')
+            end_timestamp_str = end_datetime.strftime('%Y%m%d%H%M%S')
+            
             results = Result.objects.filter(
                 line=line_name,
-                timestamp__range=(start_datetime, end_datetime)
+                timestamp__gte=start_timestamp_str,
+                timestamp__lt=end_timestamp_str
             ).values(
                 'machine', 'part', 'judgment'
             ).annotate(
-                total_quantity=Sum('quantity'),
+                total_quantity=Count('serial_number'),  # quantityは常に1なのでCountで代用
                 result_count=Count('serial_number')
             )
-            
+            self.logger.info(f"集計期間14文字: {start_timestamp_str} ～ {end_timestamp_str}")
             # 集計データを保存
             aggregation_records = []
             for result in results:
@@ -223,15 +228,20 @@ class AggregationService:
                 # 該当日の実績データを再集計（work_start_time基準）
                 start_datetime, end_datetime = self._get_work_period_for_date_by_line_name(result_instance.line, target_date)
                 
+                # timestampは文字列形式（YYYYMMDDhhmmss）なので文字列比較で範囲指定
+                start_timestamp_str = start_datetime.strftime('%Y%m%d%H%M%S')
+                end_timestamp_str = end_datetime.strftime('%Y%m%d%H%M%S')
+                
                 # 同じ条件の実績データを集計
                 result_data = Result.objects.filter(
                     line=result_instance.line,
                     machine=result_instance.machine or '',
                     part=result_instance.part,
                     judgment=result_instance.judgment,
-                    timestamp__range=(start_datetime, end_datetime)
+                    timestamp__gte=start_timestamp_str,
+                    timestamp__lt=end_timestamp_str
                 ).aggregate(
-                    total_quantity=Sum('quantity'),
+                    total_quantity=Count('serial_number'),  # quantityは常に1なのでCountで代用
                     result_count=Count('serial_number')
                 )
                 
@@ -283,14 +293,19 @@ class AggregationService:
                     # 該当日の残りの実績データを再集計（work_start_time基準）
                     start_datetime, end_datetime = self._get_work_period_for_date_by_line_name(result_instance.line, target_date)
                     
+                    # timestampは文字列形式（YYYYMMDDhhmmss）なので文字列比較で範囲指定
+                    start_timestamp_str = start_datetime.strftime('%Y%m%d%H%M%S')
+                    end_timestamp_str = end_datetime.strftime('%Y%m%d%H%M%S')
+                    
                     result_data = Result.objects.filter(
                         line=result_instance.line,
                         machine=result_instance.machine or '',
                         part=result_instance.part,
                         judgment=result_instance.judgment,
-                        timestamp__range=(start_datetime, end_datetime)
+                        timestamp__gte=start_timestamp_str,
+                        timestamp__lt=end_timestamp_str
                     ).aggregate(
-                        total_quantity=Sum('quantity'),
+                        total_quantity=Count('serial_number'),  # quantityは常に1なのでCountで代用
                         result_count=Count('serial_number')
                     )
                     
@@ -331,13 +346,18 @@ class AggregationService:
             # 元データの集計（work_start_time基準）
             start_datetime, end_datetime = self._get_work_period_for_date(line_id, target_date)
             
+            # timestampは文字列形式（YYYYMMDDhhmmss）なので文字列比較で範囲指定
+            start_timestamp_str = start_datetime.strftime('%Y%m%d%H%M%S')
+            end_timestamp_str = end_datetime.strftime('%Y%m%d%H%M%S')
+            
             source_data = Result.objects.filter(
                 line=line_name,
-                timestamp__range=(start_datetime, end_datetime)
+                timestamp__gte=start_timestamp_str,
+                timestamp__lt=end_timestamp_str
             ).values(
                 'machine', 'part', 'judgment'
             ).annotate(
-                total_quantity=Sum('quantity'),
+                total_quantity=Count('serial_number'),  # quantityは常に1なのでCountで代用
                 result_count=Count('serial_number')
             )
             

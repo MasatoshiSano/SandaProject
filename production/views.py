@@ -805,13 +805,13 @@ class WeeklyGraphView(LineAccessMixin, TemplateView):
             from .models import Part
             available_parts = Part.objects.filter(name__in=available_part_names) if available_part_names else Part.objects.none()
             
-            # WeeklyAnalysisServiceは基本データのみ提供するため、フォールバック処理を使用
-            logger.info(f"WeeklyAnalysisService基本データ取得完了、フォールバック処理でグラフデータ構築: line_id={line_id}")
-            graph_data = get_weekly_graph_data(line_id, date_obj)
-            chart_data = graph_data['chart_data']
-            weekly_stats = graph_data['weekly_stats']
-            available_parts = graph_data['available_parts']
-            part_analysis = graph_data['part_analysis']
+            # WeeklyAnalysisServiceの完全版を使用
+            logger.info(f"WeeklyAnalysisService完全版でグラフデータ構築: line_id={line_id}")
+            complete_data = service.get_complete_weekly_data(line_id, date_obj)
+            chart_data = complete_data['chart_data']
+            weekly_stats = complete_data['weekly_stats']
+            available_parts = complete_data['available_parts']
+            part_analysis = complete_data['part_analysis']
             
             # パフォーマンス指標を統計に追加
             if performance_metrics:
