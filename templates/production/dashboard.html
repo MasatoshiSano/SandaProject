@@ -219,6 +219,12 @@
                             <i class="bi bi-arrow-repeat me-2"></i>完全更新（グラフ含む）
                         </a>
                     </li>
+                    <li><hr class="dropdown-divider"></li>
+                    <li>
+                        <a class="dropdown-item" href="?refresh=1" id="cache-clear">
+                            <i class="bi bi-trash me-2 text-warning"></i>キャッシュクリア
+                        </a>
+                    </li>
                 </ul>
             </div>
         </div>
@@ -646,6 +652,56 @@ document.addEventListener('DOMContentLoaded', function() {
                         stack: (mode === 'cumulative-parts' || mode === 'cumulative-total') ? undefined : 'actual'
                     });
                 });
+                
+                // 予測線データセットを追加（合計累積表示モードのみ）
+                console.log('予測線チェック: mode =', mode);
+                console.log('予測線チェック: forecast_line length =', {{ dashboard_data.forecast_line|default:"[]"|length }});
+                
+                // 予測線データを安全に取得
+                let forecastData = [];
+                if (mode === 'cumulative-total' && {{ dashboard_data.forecast_line|default:"[]"|length }} > 0) {
+                    try {
+                        const rawData = '{{ dashboard_data.forecast_line|default:"[]"|escapejs }}';
+                        // PythonのNoneをnullに置換
+                        const cleanData = rawData.replace(/None/g, 'null');
+                        forecastData = JSON.parse(cleanData);
+                        console.log('予測線データ:', forecastData);
+                    } catch (e) {
+                        console.error('予測線データのパースエラー:', e);
+                        forecastData = [];
+                    }
+                }
+                
+                // 予測線データセットを追加
+                if (mode === 'cumulative-total' && forecastData.length > 0) {
+                    
+                    // 予測線用のデータを準備
+                    const forecastValues = data.map((d, index) => {
+                        const forecastItem = forecastData[index];
+                        return forecastItem ? forecastItem.forecast_cumulative : null;
+                    });
+                    console.log('予測線値:', forecastValues);
+                    
+                    // 予測線データセットを追加
+                    datasets.push({
+                        label: '予測線',
+                        data: forecastValues,
+                        backgroundColor: 'transparent',
+                        borderColor: '#ff6b35',  // オレンジ色
+                        borderWidth: 3,
+                        borderDash: [10, 5],     // 破線
+                        fill: false,
+                        tension: 0.2,
+                        pointBackgroundColor: '#ff6b35',
+                        pointBorderColor: '#ffffff',
+                        pointBorderWidth: 2,
+                        pointRadius: 4,
+                        pointHoverRadius: 6,
+                        spanGaps: true,  // null値をスキップして線を繋げる
+                        order: 1  // 他の線より前面に表示
+                    });
+                    console.log('予測線データセットを追加しました');
+                }
                 
                 currentChart = new Chart(ctx, {
                     type: chartType,

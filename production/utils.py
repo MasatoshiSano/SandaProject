@@ -73,17 +73,27 @@ def get_count_target_machines(line_id):
     return machines
 
 
-def calculate_input_count(line_id, date_str):
+def calculate_input_count_optimized(line_id, date_str, machine_names=None):
     """
-    投入数を計算する
+    投入数を計算する（最適化版）
     
     Args:
         line_id (int): ライン ID
         date_str (str): 日付文字列 (YYYY-MM-DD形式)
+        machine_names (list): 設備名リスト（事前取得済みの場合）
         
     Returns:
         int: 投入数（全判定を含む）
     """
+    from django.core.cache import cache
+    
+    # キャッシュキーを生成
+    cache_key = f"input_count_{line_id}_{date_str}"
+    cached_count = cache.get(cache_key)
+    
+    if cached_count is not None:
+        return cached_count
+    
     try:
         # 日付文字列を date に変換
         try:
@@ -100,49 +110,51 @@ def calculate_input_count(line_id, date_str):
             logger.error(f"ライン ID {line_id} が見つかりません")
             return 0
         
-        # WorkCalendarからwork_start_timeを取得
-        try:
-            work_calendar = WorkCalendar.objects.get(line_id=line_id)
-            work_start_time = work_calendar.work_start_time
-        except WorkCalendar.DoesNotExist:
-            logger.warning(f"ライン ID {line_id} のWorkCalendarが見つかりません。デフォルト値を使用します")
-            work_start_time = time(8, 30)  # デフォルト値
+        # 設備名が事前に取得されていない場合のみDB検索
+        if machine_names is None:
+            machine_names = list(Machine.objects.filter(
+                line_id=line_id, 
+                is_count_target=True,
+                is_active=True
+            ).values_list('name', flat=True))
         
-        # 投入数対象設備を取得
-        input_count_machines = Machine.objects.filter(
-            line_id=line_id, 
-            is_count_target=True,
-            is_active=True
-        )
-        
-        if not input_count_machines.exists():
+        if not machine_names:
             logger.info(f"ライン ID {line_id} に投入数対象設備がありません")
             return 0
         
-        input_count_machine_names = [m.name for m in input_count_machines]
-        logger.info(f"投入数対象設備: {input_count_machine_names}")
+        # WorkCalendar取得（キャッシュ化）
+        calendar_cache_key = f"work_calendar_{line_id}"
+        work_calendar_data = cache.get(calendar_cache_key)
+        if not work_calendar_data:
+            try:
+                work_calendar = WorkCalendar.objects.get(line_id=line_id)
+                work_start_time = work_calendar.work_start_time
+            except WorkCalendar.DoesNotExist:
+                work_start_time = time(8, 30)
+            
+            work_calendar_data = {'work_start_time': work_start_time}
+            cache.set(calendar_cache_key, work_calendar_data, 3600)
+        else:
+            work_start_time = work_calendar_data['work_start_time']
         
         # 時間期間を計算
         actual_work_start = datetime.combine(date, work_start_time)
         next_day_work_start = actual_work_start + timedelta(days=1)
         
-        # Oracleテーブルのtimestampは文字列形式（YYYYMMDDhhmmss）
         start_str = actual_work_start.strftime('%Y%m%d%H%M%S')
         end_str = next_day_work_start.strftime('%Y%m%d%H%M%S')
         
-        logger.info(f"投入数計算期間: {start_str} - {end_str}")
-        
-        # 投入数を計算（全判定を含む - OK/NG両方）
-        input_results = Result.objects.filter(
+        # 投入数を計算（COUNT クエリで最適化）
+        input_count = Result.objects.filter(
             line=line_name,
-            machine__in=input_count_machine_names,
+            machine__in=machine_names,
             timestamp__gte=start_str,
             timestamp__lt=end_str,
-            sta_no1='SAND'  # フィルタ条件
-        )
+            sta_no1='SAND'
+        ).count()
         
-        input_count = input_results.count()
-        logger.info(f"投入数: {input_count}")
+        # キャッシュに保存（10分間）
+        cache.set(cache_key, input_count, 600)
         
         return input_count
         
@@ -151,116 +163,218 @@ def calculate_input_count(line_id, date_str):
         return 0
 
 
+def calculate_input_count(line_id, date_str):
+    """
+    投入数を計算する（後方互換性のため残存）
+    """
+    return calculate_input_count_optimized(line_id, date_str)
+
+
+def get_part_actuals_bulk(line_id, date, part_names):
+    """機種別実績を一括取得（一括クエリ化）"""
+    from django.db.models import Count
+    
+    if not part_names:
+        return {}
+    
+    line_name = Line.objects.get(id=line_id).name
+    
+    # WorkCalendarから作業時間を取得
+    try:
+        work_calendar = WorkCalendar.objects.get(line_id=line_id)
+        work_start_time = work_calendar.work_start_time
+        morning_meeting_duration = work_calendar.morning_meeting_duration
+    except WorkCalendar.DoesNotExist:
+        work_start_time = time(8, 30)
+        morning_meeting_duration = 15
+    
+    # 実際の作業開始時刻（朝礼時間を考慮）
+    actual_work_start = datetime.combine(date, work_start_time) + timedelta(minutes=morning_meeting_duration)
+    next_day_work_start = actual_work_start + timedelta(days=1)
+    
+    start_str = actual_work_start.strftime('%Y%m%d%H%M%S')
+    end_str = next_day_work_start.strftime('%Y%m%d%H%M%S')
+    
+    try:
+        # カウント対象設備を取得
+        count_target_machines = get_count_target_machines(line_id)
+        count_target_machine_names = [m.name for m in count_target_machines]
+        
+        # 一括でGROUP BYクエリを実行
+        results = Result.objects.filter(
+            line=line_name,
+            machine__in=count_target_machine_names,
+            part__in=part_names,  # IN句で全機種を指定
+            timestamp__gte=start_str,
+            timestamp__lt=end_str,
+            judgment='1',
+            sta_no1='SAND'
+        ).values('part').annotate(
+            actual_count=Count('serial_number')
+        )
+        
+        # 辞書形式で返却
+        part_actuals = {result['part']: result['actual_count'] for result in results}
+        
+        # 実績がない機種は0で初期化
+        for part_name in part_names:
+            if part_name not in part_actuals:
+                part_actuals[part_name] = 0
+        
+        return part_actuals
+        
+    except Exception as e:
+        logger.error(f"一括実績取得エラー: {e}")
+        # フォールバック: 空の辞書を返す
+        return {part_name: 0 for part_name in part_names}
+
+
 def get_dashboard_data(line_id, date_str):
-    """ダッシュボード用のデータを取得"""
+    """ダッシュボード用のデータを取得（高速化版）"""
+    from django.core.cache import cache
+    from django.db.models import Count, Sum, Prefetch
+    
+    # キャッシュキーを生成
+    cache_key = f"dashboard_data_{line_id}_{date_str}"
+    cached_data = cache.get(cache_key)
+    
+    # キャッシュがある場合は返却（5分間キャッシュ）
+    if cached_data:
+        logger.info(f"ダッシュボードデータをキャッシュから取得: {cache_key}")
+        return cached_data
+    
+    start_time = timezone.now()
+    
     # --- 1. Line オブジェクト／名称取得 ---
     line = get_object_or_404(Line, id=line_id)
     line_name = line.name
 
     # --- 2. 日付文字列を date に変換 ---
     try:
-        date = datetime.strptime(date_str, '%Y-%m-%d').date()
-    except ValueError:
+        if isinstance(date_str, str):
+            date = datetime.strptime(date_str, '%Y-%m-%d').date()
+        else:
+            # date オブジェクトの場合はそのまま使用
+            date = date_str
+    except (ValueError, TypeError):
         date = timezone.now().date()
 
-    # --- 3. 計画(Plan)の取得 ---
-    plans = Plan.objects.filter(line_id=line_id, date=date).order_by('sequence')
+    # --- 3. 計画(Plan)の取得（select_related で最適化） ---
+    plans = Plan.objects.filter(
+        line_id=line_id, 
+        date=date
+    ).select_related('part', 'part__category').order_by('sequence')
 
-    # --- 4. カウント対象設備を特定 ---
-    count_target_machines = get_count_target_machines(line_id)
-    count_target_machine_names = [m.name for m in count_target_machines]
+    # --- 4. カウント対象設備を特定（キャッシュ化） ---
+    machine_cache_key = f"count_target_machines_{line_id}"
+    count_target_machines = cache.get(machine_cache_key)
+    if not count_target_machines:
+        count_target_machines = list(Machine.objects.filter(
+            line_id=line_id, 
+            is_active=True,
+            is_count_target=True
+        ).values('name'))
+        cache.set(machine_cache_key, count_target_machines, 3600)  # 1時間キャッシュ
     
-    # --- 5. 実績(Result)の取得（カウント対象設備のみ） ---
-    # WorkCalendarからwork_start_timeを取得
-    try:
-        work_calendar = WorkCalendar.objects.get(line_id=line_id)
-        work_start_time = work_calendar.work_start_time
-        morning_meeting_duration = work_calendar.morning_meeting_duration
-    except WorkCalendar.DoesNotExist:
-        work_start_time = time(8, 30)  # デフォルト値
-        morning_meeting_duration = 15
+    count_target_machine_names = [m['name'] for m in count_target_machines]
     
-    # 実際の作業開始時刻（朝礼時間を考慮）
+    # --- 5. WorkCalendar取得（キャッシュ化） ---
+    calendar_cache_key = f"work_calendar_{line_id}"
+    work_calendar_data = cache.get(calendar_cache_key)
+    if not work_calendar_data:
+        try:
+            work_calendar = WorkCalendar.objects.get(line_id=line_id)
+            work_calendar_data = {
+                'work_start_time': work_calendar.work_start_time,
+                'morning_meeting_duration': work_calendar.morning_meeting_duration
+            }
+        except WorkCalendar.DoesNotExist:
+            work_calendar_data = {
+                'work_start_time': time(8, 30),
+                'morning_meeting_duration': 15
+            }
+        cache.set(calendar_cache_key, work_calendar_data, 3600)  # 1時間キャッシュ
+    
+    work_start_time = work_calendar_data['work_start_time']
+    morning_meeting_duration = work_calendar_data['morning_meeting_duration']
+    
+    # --- 6. 時間範囲計算 ---
     actual_work_start = datetime.combine(date, work_start_time) + timedelta(minutes=morning_meeting_duration)
-    # 翌日の作業開始時刻まで
     next_day_work_start = actual_work_start + timedelta(days=1)
     
-    # Oracleテーブルのtimestampは文字列形式（YYYYMMDDhhmmss）
     start_str = actual_work_start.strftime('%Y%m%d%H%M%S')
     end_str = next_day_work_start.strftime('%Y%m%d%H%M%S')
     
-    results = Result.objects.filter(
+    # --- 7. 実績データを一括取得（最適化されたクエリ） ---
+    results_query = Result.objects.filter(
         line=line_name,
-        machine__in=count_target_machine_names,  # カウント対象設備のみ
+        machine__in=count_target_machine_names,
         timestamp__gte=start_str,
-        timestamp__lt=end_str,  # 翌日の開始時刻未満
-        judgment='1',  # Oracle形式（1=OK, 2=NG）
-        sta_no1='SAND'  # フィルタ条件
+        timestamp__lt=end_str,
+        judgment='1',
+        sta_no1='SAND'
     )
-    # --- 5. 機種別データの集計 ---
-    # キーは「機種名」の文字列
-    part_data: dict[str, dict] = {}
-
-    # 5-1. 計画数量を加算
+    
+    # 機種別実績を一括集計
+    part_actuals = dict(
+        results_query.values('part').annotate(
+            actual_count=Count('serial_number')
+        ).values_list('part', 'actual_count')
+    )
+    
+    # --- 8. 機種別データの集計（最適化） ---
+    part_data = {}
+    total_planned = 0
+    
+    # 計画データを一括処理
     for plan in plans:
         pname = plan.part.name
         if pname not in part_data:
             part_data[pname] = {
                 'name': pname,
                 'planned': 0,
-                'actual': 0,
+                'actual': part_actuals.get(pname, 0),
                 'achievement_rate': 0,
                 'color': generate_part_color(plan.part.id, plan.part.name),
             }
         part_data[pname]['planned'] += plan.planned_quantity
-
-    # 5-2. 実績数量を加算＆達成率計算
-    for result in results:
-        pname = result.part  # 文字列フィールドから機種名を取得
-        # カラー取得のため、Part オブジェクトにフォールバック
-        if pname not in part_data:
-            try:
-                part_obj = Part.objects.get(name=pname)
-                color = generate_part_color(part_obj.id, part_obj.name)
-            except Part.DoesNotExist:
-                color = '#000000'
-            part_data[pname] = {
-                'name': pname,
-                'planned': 0,
-                'actual': 0,
-                'achievement_rate': 0,
-                'color': color,
-            }
-        # 数量を加算
-        part_data[pname]['actual'] += result.quantity
-        planned = part_data[pname]['planned']
+        total_planned += plan.planned_quantity
+    
+    # 達成率を一括計算
+    total_actual = 0
+    for pname, data in part_data.items():
+        actual = data['actual']
+        planned = data['planned']
+        total_actual += actual
         if planned > 0:
-            part_data[pname]['achievement_rate'] = (
-                part_data[pname]['actual'] / planned * 100
-            )
-
-    # --- 6. 時間別データ生成 ---
-    hourly_data = generate_hourly_data_machine_based(
-        line_id, date, plans, count_target_machines, results
-    )
-
-    # --- 7. 総計算＆残数 ---
-    total_planned = sum(d['planned'] for d in part_data.values())
-    total_actual  = sum(d['actual']  for d in part_data.values())
-    achievement_rate = (
-        total_actual / total_planned * 100 if total_planned else 0
-    )
+            data['achievement_rate'] = (actual / planned * 100)
+    
+    achievement_rate = (total_actual / total_planned * 100) if total_planned else 0
     remaining = max(0, total_planned - total_actual)
 
-    # --- 8. 投入数計算 ---
-    try:
-        input_count = calculate_input_count(line_id, date_str)
-    except Exception as e:
-        logger.error(f"ダッシュボード投入数計算エラー: {e}")
-        input_count = 0  # フォールバック値
+    # --- 9. 時間別データ生成（軽量化） ---
+    hourly_data = generate_hourly_data_optimized(
+        line_id, date, plans, count_target_machine_names, results_query, 
+        work_start_time, morning_meeting_duration
+    )
 
-    # --- 9. 結果返却 ---
-    return {
+    # --- 10. 投入数計算（並列化可能な場合は非同期） ---
+    input_count = calculate_input_count_optimized(line_id, date_str, count_target_machine_names)
+
+    # --- 11. 終了予測時刻計算（最適化版直接使用） ---
+    try:
+        from .services.forecast_service import OptimizedForecastService
+        forecast_service = OptimizedForecastService()
+        forecast_time = forecast_service.get_forecast_time(line_id, date)
+    except Exception as e:
+        logger.error(f"予測時間計算エラー: {e}")
+        forecast_time = '計算エラー'
+
+    # --- 12. 結果データ構築 ---
+    # --- 13. 予測線データ生成 ---
+    forecast_line_data = generate_forecast_line_data(line_id, date, forecast_time, hourly_data, total_planned)
+    logger.info(f"forecast_line_data: {forecast_line_data}")
+    dashboard_data = {
         'parts': list(part_data.values()),
         'hourly': hourly_data,
         'total_planned': total_planned,
@@ -268,8 +382,214 @@ def get_dashboard_data(line_id, date_str):
         'input_count': input_count,
         'achievement_rate': achievement_rate,
         'remaining': remaining,
+        'forecast_time': forecast_time,
+        'forecast_line': forecast_line_data,
         'last_updated': timezone.now().isoformat(),
     }
+    
+    # キャッシュに保存（5分間）
+    cache.set(cache_key, dashboard_data, 300)
+    
+    processing_time = (timezone.now() - start_time).total_seconds() * 1000
+    logger.info(f"ダッシュボードデータ生成完了: {processing_time:.2f}ms")
+    
+    return dashboard_data
+
+
+def generate_forecast_line_data(line_id, date, forecast_time, hourly_data, total_planned):
+    """
+    予測線用の時間別データを生成
+    
+    Args:
+        line_id: ライン ID
+        date: 対象日付
+        forecast_time: 予測終了時刻 (文字列)
+        hourly_data: 既存の時間別データ
+        total_planned: 総計画数
+        
+    Returns:
+        list: 予測線用の時間別累積データ
+    """
+    try:
+        from datetime import datetime, timedelta
+        import re
+        
+        # 予測時刻をパース
+        if not forecast_time or forecast_time in ['計画なし', '完了済み', '計算エラー']:
+            return []
+        
+        # 時刻フォーマット解析 (HH:MM)
+        time_match = re.match(r'(\d{1,2}):(\d{2})', forecast_time.strip())
+        if not time_match:
+            return []
+        
+        forecast_hour = int(time_match.group(1))
+        forecast_minute = int(time_match.group(2))
+        
+        # 現在時刻を取得（東京時間）
+        now = timezone.now()
+        local_now = timezone.localtime(now)
+        current_hour = local_now.hour
+        
+        # 予測時刻が翌日（夜勤）の場合、24時間を追加
+        if forecast_hour < 8:  # 朝の時刻は翌日と判断
+            forecast_hour += 24
+            
+        # 実際の現在時刻を使用（テスト用の時刻調整を削除）
+        logger.info(f"予測線生成: 現在時刻{current_hour}:00を使用")
+        
+        # 現在時刻も夜勤シフトに調整（深夜の場合）
+        if current_hour < 8:
+            current_hour += 24
+        
+        # デバッグ用：現在時刻情報
+        logger.debug(f"予測線生成: 現在時刻={now}, current_hour={current_hour}, 予測時刻={forecast_time}")
+        
+        # 現在時刻での実績累積を取得（total_actualは既に累積値）
+        current_actual_cumulative = 0
+        for hour_data in hourly_data:
+            hour = hour_data['hour']
+            
+            # 時間データを数値に変換
+            try:
+                if isinstance(hour, str):
+                    # "08:30(08:45~)" のような形式から時間を抽出
+                    hour_match = re.match(r'(\d{1,2}):(\d{2})', hour)
+                    if hour_match:
+                        hour_num = int(hour_match.group(1)) + int(hour_match.group(2)) / 60
+                        # 夜勤の場合の時刻調整（翌日の朝の時刻は24時間を追加）
+                        if hour_num < 8:
+                            hour_num += 24
+                    else:
+                        hour_num = int(hour.split(':')[0])  # 時間部分のみ
+                        if hour_num < 8:
+                            hour_num += 24
+                elif isinstance(hour, (int, float)):
+                    hour_num = hour
+                    if hour_num < 8:
+                        hour_num += 24
+                else:
+                    continue  # 無効なデータはスキップ
+            except (ValueError, AttributeError):
+                continue
+                
+            if hour_num <= current_hour:
+                current_actual_cumulative = hour_data.get('total_actual', 0)  # 最新の累積値を取得
+            else:
+                break
+        
+        # 現在時刻が見つからない場合の処理
+        if current_actual_cumulative == 0 and hourly_data:
+            # 最も近い過去の時刻の実績を使用
+            for hour_data in reversed(hourly_data):
+                hour = hour_data['hour']
+                try:
+                    if isinstance(hour, str):
+                        hour_match = re.match(r'(\d{1,2}):(\d{2})', hour)
+                        if hour_match:
+                            hour_num = int(hour_match.group(1)) + int(hour_match.group(2)) / 60
+                        else:
+                            hour_num = int(hour.split(':')[0])
+                    elif isinstance(hour, (int, float)):
+                        hour_num = hour
+                    else:
+                        continue
+                except (ValueError, AttributeError):
+                    continue
+                    
+                if hour_num <= current_hour and hour_data.get('total_actual', 0) > 0:
+                    current_actual_cumulative = hour_data['total_actual']
+                    break
+        
+        # 予測線データを生成
+        forecast_line = []
+        
+        # デバッグ情報
+        logger.info(f"予測線計算: current_hour={current_hour}, current_actual={current_actual_cumulative}, total_planned={total_planned}")
+        
+        # 現在時刻から予測終了時刻まで線形に補間
+        remaining_planned = total_planned - current_actual_cumulative
+        forecast_end_hour = forecast_hour + forecast_minute/60
+        
+        # 予測完了時刻が現在時刻より前の場合（既に完了済み）
+        if forecast_end_hour < current_hour:
+            logger.info(f"予測線生成: 予測完了時刻({forecast_end_hour})が現在時刻({current_hour})より前のため、完了済み扱い")
+            return []
+        
+        logger.info(f"予測線計算: remaining={remaining_planned}, forecast_end_hour={forecast_end_hour}")
+        
+        for hour_data in hourly_data:
+            hour = hour_data['hour']
+            
+            # 時間データを数値に変換
+            try:
+                if isinstance(hour, str):
+                    # "08:30(08:45~)" のような形式から時間を抽出
+                    hour_match = re.match(r'(\d{1,2}):(\d{2})', hour)
+                    if hour_match:
+                        hour_num = int(hour_match.group(1)) + int(hour_match.group(2)) / 60
+                        # 夜勤の場合の時刻調整（翌日の朝の時刻は24時間を追加）
+                        if hour_num < 8:
+                            hour_num += 24
+                    else:
+                        hour_num = int(hour.split(':')[0])  # 時間部分のみ
+                        if hour_num < 8:
+                            hour_num += 24
+                elif isinstance(hour, (int, float)):
+                    hour_num = hour
+                    if hour_num < 8:
+                        hour_num += 24
+                else:
+                    continue  # 無効なデータはスキップ
+            except (ValueError, AttributeError):
+                continue
+            
+            if hour_num <= current_hour - 1:  # 現在時刻より1時間以上前
+                # 現在時刻より前はNullで表示しない
+                forecast_line.append({
+                    'hour': hour,  # 元の形式を保持
+                    'forecast_cumulative': None
+                })
+            elif hour_num <= forecast_end_hour + 0.5:  # 予測終了時刻の30分後まで含む
+                # 現在時刻から予測終了時刻まで線形補間
+                if forecast_end_hour > current_hour:
+                    if hour_num < current_hour:
+                        # 現在時刻より前の時間は実績値を表示
+                        forecast_cumulative = hour_data.get('total_actual', 0)
+                    elif hour_num <= forecast_end_hour:
+                        # 現在時刻以降は線形補間
+                        progress_ratio = (hour_num - current_hour) / (forecast_end_hour - current_hour)
+                        forecast_cumulative = current_actual_cumulative + (remaining_planned * progress_ratio)
+                    else:
+                        # 予測終了時刻直後の時間枠では完了予定値を表示
+                        forecast_cumulative = total_planned
+                    
+                    forecast_line.append({
+                        'hour': hour,  # 元の形式を保持
+                        'forecast_cumulative': round(forecast_cumulative)
+                    })
+                else:
+                    # 予測時刻が現在時刻より前の場合（完了済み）
+                    forecast_line.append({
+                        'hour': hour,
+                        'forecast_cumulative': total_planned
+                    })
+            else:
+                # 予測終了時刻以降はnullで表示しない
+                forecast_line.append({
+                    'hour': hour,  # 元の形式を保持
+                    'forecast_cumulative': None
+                })
+        
+        # JavaScript用にJSONシリアライズ可能にする（NoneをJavaScriptのnullに変換）
+        import json
+        json_forecast_line = json.loads(json.dumps(forecast_line))
+        return json_forecast_line
+        
+    except Exception as e:
+        logger.error(f"予測線データ生成エラー: {e}")
+        return []
+
 
 def generate_hourly_data(line_id, date, plans, results):
     """時間別データを生成（機種別）- work_start_timeから1時間刻みで生成"""
@@ -1811,3 +2131,229 @@ def calculate_planned_pph_for_date(line_id, date):
         logger.info("数量整合性: OK - ScheduledPPH.md仕様準拠")
     
     return saved_count 
+
+
+def generate_hourly_data_optimized(line_id, date, plans, machine_names, results_query, work_start_time, morning_meeting_duration):
+    """時間別データを生成（高速化版 - 1回のクエリで全時間帯を処理）"""
+    from django.db.models import Count, Case, When, IntegerField
+    from django.core.cache import cache
+    
+    # キャッシュキーを生成
+    cache_key = f"hourly_data_{line_id}_{date.strftime('%Y%m%d')}"
+    cached_data = cache.get(cache_key)
+    
+    if cached_data:
+        return cached_data
+    
+    # 1回のクエリで全ての実績データを時間別に集計
+    hourly_results = _get_all_hourly_results_single_query(
+        results_query, date, work_start_time, morning_meeting_duration
+    )
+    
+    # 計画データを一括取得
+    all_planned_productions = PlannedHourlyProduction.objects.filter(
+        line_id=line_id,
+        date=date
+    ).select_related('part').order_by('hour')
+    
+    # 計画データを時間別に整理
+    planned_by_hour = {}
+    for php in all_planned_productions:
+        hour_idx = php.hour
+        if hour_idx not in planned_by_hour:
+            planned_by_hour[hour_idx] = []
+        planned_by_hour[hour_idx].append(php)
+    
+    # 機種名からPartオブジェクトへのマッピングを一括作成
+    part_name_to_obj = {}
+    unique_part_names = set()
+    for hour_data in hourly_results.values():
+        unique_part_names.update(hour_data.keys())
+    
+    if unique_part_names:
+        parts = Part.objects.filter(name__in=unique_part_names)
+        part_name_to_obj = {part.name: part for part in parts}
+    
+    # 時間別データを構築
+    hourly_data = []
+    for hour_index in range(24):
+        naive_start = datetime.combine(date, work_start_time) + timedelta(hours=hour_index)
+        
+        # 表示時間の計算
+        display_time = naive_start.strftime('%H:%M')
+        if hour_index == 0:
+            effective_start = naive_start + timedelta(minutes=morning_meeting_duration)
+            display_time = f"{display_time}({effective_start.strftime('%H:%M')}~)"
+        
+        hour_record = {
+            'hour': display_time,
+            'total_planned': 0,
+            'total_actual': 0,
+            'parts': {}
+        }
+        
+        # 計画数を設定
+        planned_productions = planned_by_hour.get(hour_index, [])
+        for php in planned_productions:
+            pid = php.part_id
+            if pid not in hour_record['parts']:
+                hour_record['parts'][pid] = {
+                    'name': php.part.name,
+                    'color': generate_part_color(php.part.id, php.part.name),
+                    'planned': 0,
+                    'actual': 0,
+                }
+            hour_record['parts'][pid]['planned'] += php.planned_quantity
+            hour_record['total_planned'] += php.planned_quantity
+        
+        # 実績数を設定
+        hour_part_results = hourly_results.get(hour_index, {})
+        for part_name, actual_count in hour_part_results.items():
+            part_obj = part_name_to_obj.get(part_name)
+            if part_obj:
+                pid = part_obj.id
+                
+                if pid not in hour_record['parts']:
+                    hour_record['parts'][pid] = {
+                        'name': part_obj.name,
+                        'color': generate_part_color(part_obj.id, part_obj.name),
+                        'planned': 0,
+                        'actual': 0,
+                    }
+                
+                hour_record['parts'][pid]['actual'] += actual_count
+                hour_record['total_actual'] += actual_count
+        
+        hourly_data.append(hour_record)
+    
+    # キャッシュに保存（10分間）
+    cache.set(cache_key, hourly_data, 600)
+    
+    return hourly_data
+
+
+def get_forecast_time_cached(line_id, date):
+    """終了予測時刻を取得（最適化版・15分キャッシュ）"""
+    try:
+        # 最適化された予測サービスを使用
+        from .services.forecast_service import OptimizedForecastService
+        forecast_service = OptimizedForecastService()
+        result = forecast_service.get_forecast_time(line_id, date)
+        
+        return result
+            
+    except Exception as e:
+        logger.error(f"最適化予測計算エラー: {e}")
+        # フォールバックも最適化版を使用（古いサービスは使わない）
+        try:
+            # 再試行で最適化版サービスを使用
+            from .services.forecast_service import OptimizedForecastService
+            forecast_service = OptimizedForecastService()
+            # キャッシュを使わず直接計算
+            result = forecast_service._calculate_forecast_with_breaks(line_id, date)
+            return result
+        except Exception as fallback_error:
+            logger.error(f"フォールバック予測計算エラー: {fallback_error}")
+            return '計算エラー'
+
+
+def clear_dashboard_cache(line_id, date_str=None):
+    """ダッシュボード関連のキャッシュをクリア（強化版）"""
+    from django.core.cache import cache
+    
+    if date_str:
+        date_compact = date_str.replace('-', '')
+        target_date = timezone.datetime.strptime(date_str, '%Y-%m-%d').date()
+    else:
+        today = timezone.now().date()
+        date_str = today.strftime('%Y-%m-%d')
+        date_compact = today.strftime('%Y%m%d')
+        target_date = today
+    
+    # ダッシュボード関連キャッシュ
+    cache_keys = [
+        f"dashboard_data_{line_id}_{date_str}",
+        f"input_count_{line_id}_{date_str}",
+        f"hourly_data_{line_id}_{date_compact}",
+        f"optimized_forecast_{line_id}_{date_compact}",
+        f"part_actuals_opt_{line_id}_{date_compact}",
+        f"plans_{line_id}_{date_compact}",
+    ]
+    
+    # 共通キャッシュ
+    cache_keys.extend([
+        f"count_target_machines_{line_id}",
+        f"work_calendar_{line_id}",
+        f"current_rate_{line_id}",
+    ])
+    
+    # 機種別実績キャッシュ（パターンマッチング）
+    cache_keys.extend([
+        f"part_actuals_{line_id}_{date_compact}",
+        f"simple_forecast_{line_id}_{date_compact}",
+    ])
+    
+    cache.delete_many(cache_keys)
+    
+    # 予測サービスキャッシュもクリア（最適化版）
+    try:
+        from .services.forecast_service import OptimizedForecastService
+        forecast_service = OptimizedForecastService()
+        forecast_service.clear_cache(line_id, target_date)
+    except Exception as e:
+        logger.warning(f"予測サービスキャッシュクリアエラー: {e}")
+    
+    logger.info(f"強化ダッシュボードキャッシュクリア: line_id={line_id}, date={date_str}")
+
+
+def _get_all_hourly_results_single_query(results_query, date, work_start_time, morning_meeting_duration):
+    """1回のクエリで全時間帯の実績を取得（超高速化版 - Python処理）"""
+    from django.db.models import Count
+    from collections import defaultdict
+    
+    try:
+        # 全実績を一度に取得（timestamp, part のみ）
+        all_results = list(results_query.values('timestamp', 'part'))
+        
+        if not all_results:
+            return {}
+        
+        # 時間帯境界を事前計算
+        hour_boundaries = []
+        for hour_index in range(24):
+            naive_start = datetime.combine(date, work_start_time) + timedelta(hours=hour_index)
+            
+            if hour_index == 0:
+                result_start = naive_start + timedelta(minutes=morning_meeting_duration)
+            else:
+                result_start = naive_start
+            
+            result_end = result_start + timedelta(hours=1)
+            
+            start_str = result_start.strftime('%Y%m%d%H%M%S')
+            end_str = result_end.strftime('%Y%m%d%H%M%S')
+            
+            hour_boundaries.append((hour_index, start_str, end_str))
+        
+        # Python側で時間帯判定と集計
+        hourly_results = defaultdict(lambda: defaultdict(int))
+        
+        for result in all_results:
+            timestamp = result['timestamp']
+            part_name = result['part']
+            
+            # 該当する時間帯を検索
+            for hour_index, start_str, end_str in hour_boundaries:
+                if start_str <= timestamp < end_str:
+                    hourly_results[hour_index][part_name] += 1
+                    break
+        
+        # defaultdictを通常のdictに変換
+        return {
+            hour_idx: dict(part_counts) 
+            for hour_idx, part_counts in hourly_results.items()
+        }
+        
+    except Exception as e:
+        logger.warning(f"時間別実績の超高速取得に失敗: {e}")
+        return {}

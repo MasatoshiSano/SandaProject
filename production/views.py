@@ -100,6 +100,7 @@ class DashboardView(LineAccessMixin, TemplateView):
     
     def get_context_data(self, **kwargs):
         from .dashboard_cards import get_visible_cards_config
+        from .utils import clear_dashboard_cache
         
         context = super().get_context_data(**kwargs)
         line_id = kwargs['line_id']
@@ -113,6 +114,13 @@ class DashboardView(LineAccessMixin, TemplateView):
             date_str = date_obj.strftime('%Y-%m-%d')
         
         line = get_object_or_404(Line, id=line_id)
+        
+        # キャッシュ強制更新フラグをチェック
+        if self.request.GET.get('refresh') == '1':
+            clear_dashboard_cache(line_id, date_str)
+            logger.info(f"Dashboard cache cleared for line {line_id}, date {date_str}")
+            from django.contrib import messages
+            messages.success(self.request, 'ダッシュボードのキャッシュをクリアしました。最新のデータが表示されます。')
         
         try:
             dashboard_data = get_dashboard_data(line_id, date_str)
@@ -158,7 +166,7 @@ class DashboardView(LineAccessMixin, TemplateView):
         visible_keys = {card.get('context_key') for card in visible_cards if card.get('context_key')}
         
         # Always include essential data that's not card-specific
-        essential_keys = {'hourly', 'parts'}
+        essential_keys = {'hourly', 'parts', 'forecast_line'}
         visible_keys.update(essential_keys)
         
         # Filter the dashboard data
@@ -395,7 +403,7 @@ class PartListView(LoginRequiredMixin, ListView):
     paginate_by = 20
     
     def get_queryset(self):
-        queryset = Part.objects.select_related('line', 'category').prefetch_related('tags')
+        queryset = Part.objects.select_related('category').prefetch_related('tags')
         
         # フィルタリング
         search = self.request.GET.get('search')
