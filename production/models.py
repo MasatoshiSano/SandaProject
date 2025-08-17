@@ -103,9 +103,8 @@ class Tag(models.Model):
 
 class Part(models.Model):
     """機種"""
-    name = models.CharField('機種名', max_length=100)
+    name = models.CharField('機種名', max_length=100, unique=True)
     part_number = models.CharField('品番', max_length=50, blank=True, unique=True, null=True)
-    line = models.ForeignKey(Line, on_delete=models.CASCADE, verbose_name='ライン')
     category = models.ForeignKey(Category, on_delete=models.CASCADE, verbose_name='カテゴリ')
     tags = models.ManyToManyField(Tag, blank=True, verbose_name='タグ')
     target_pph = models.PositiveIntegerField('目標PPH', validators=[MinValueValidator(1)],null=True,blank=True)
@@ -118,8 +117,7 @@ class Part(models.Model):
     class Meta:
         verbose_name = '機種'
         verbose_name_plural = '機種'
-        ordering = ['line', 'name']
-        unique_together = ['line', 'name']
+        ordering = ['name']
 
     def save(self, *args, **kwargs):
         # サイクルタイム = 3600 ÷ 目標PPH
@@ -127,7 +125,7 @@ class Part(models.Model):
         super().save(*args, **kwargs)
 
     def __str__(self):
-        return f'{self.line.name} - {self.name}'
+        return self.name
 
 
 class Plan(models.Model):
@@ -155,9 +153,14 @@ class Plan(models.Model):
     
     @property
     def duration_minutes(self):
-        """計画時間を分単位で返す"""
+        """計画時間を分単位で返す（翌日跨ぎ対応）"""
         start_datetime = datetime.combine(self.date, self.start_time)
         end_datetime = datetime.combine(self.date, self.end_time)
+        
+        # 終了時間が開始時間以下の場合は翌日とみなす
+        if self.end_time <= self.start_time:
+            end_datetime = datetime.combine(self.date + timedelta(days=1), self.end_time)
+        
         return int((end_datetime - start_datetime).total_seconds() / 60)
     
     @property
@@ -182,6 +185,44 @@ class Plan(models.Model):
         if self.planned_quantity == 0:
             return 0
         return (self.actual_quantity / self.planned_quantity) * 100
+    
+    def save(self, *args, **kwargs):
+        """保存時にダッシュボードキャッシュをクリア"""
+        super().save(*args, **kwargs)
+        
+        # ダッシュボードキャッシュをクリア
+        try:
+            from .utils import clear_dashboard_cache
+            date_str = self.date.strftime('%Y-%m-%d')
+            clear_dashboard_cache(self.line_id, date_str)
+            
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info(f"Plan saved - Dashboard cache cleared for line {self.line_id}, date {date_str}")
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Failed to clear dashboard cache after Plan save: {e}")
+    
+    def delete(self, *args, **kwargs):
+        """削除時にダッシュボードキャッシュをクリア"""
+        line_id = self.line_id
+        date_str = self.date.strftime('%Y-%m-%d')
+        
+        super().delete(*args, **kwargs)
+        
+        # ダッシュボードキャッシュをクリア
+        try:
+            from .utils import clear_dashboard_cache
+            clear_dashboard_cache(line_id, date_str)
+            
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info(f"Plan deleted - Dashboard cache cleared for line {line_id}, date {date_str}")
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Failed to clear dashboard cache after Plan delete: {e}")
 
 
 class Result(models.Model):
@@ -239,6 +280,72 @@ class Result(models.Model):
     def quantity(self):
         """各実績レコードは1個を表す"""
         return 1
+    
+    def save(self, *args, **kwargs):
+        """保存時にダッシュボードキャッシュをクリア"""
+        super().save(*args, **kwargs)
+        
+        # タイムスタンプから日付とラインIDを取得してキャッシュクリア
+        try:
+            from datetime import datetime
+            from .utils import clear_dashboard_cache
+            from .models import Line
+            
+            # タイムスタンプから日付を抽出（YYYYMMDDhhmmss形式）
+            if len(self.timestamp) >= 8:
+                date_str = f"{self.timestamp[:4]}-{self.timestamp[4:6]}-{self.timestamp[6:8]}"
+                
+                # ライン名からラインIDを取得
+                try:
+                    line_obj = Line.objects.get(name=self.line)
+                    clear_dashboard_cache(line_obj.id, date_str)
+                    
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.info(f"Result saved - Dashboard cache cleared for line {line_obj.id} ({self.line}), date {date_str}")
+                except Line.DoesNotExist:
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.warning(f"Line not found for Result save: {self.line}")
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Failed to clear dashboard cache after Result save: {e}")
+    
+    def delete(self, *args, **kwargs):
+        """削除時にダッシュボードキャッシュをクリア"""
+        # 削除前に必要な情報を保存
+        timestamp = self.timestamp
+        line_name = self.line
+        
+        super().delete(*args, **kwargs)
+        
+        # タイムスタンプから日付とラインIDを取得してキャッシュクリア
+        try:
+            from datetime import datetime
+            from .utils import clear_dashboard_cache
+            from .models import Line
+            
+            # タイムスタンプから日付を抽出（YYYYMMDDhhmmss形式）
+            if len(timestamp) >= 8:
+                date_str = f"{timestamp[:4]}-{timestamp[4:6]}-{timestamp[6:8]}"
+                
+                # ライン名からラインIDを取得
+                try:
+                    line_obj = Line.objects.get(name=line_name)
+                    clear_dashboard_cache(line_obj.id, date_str)
+                    
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.info(f"Result deleted - Dashboard cache cleared for line {line_obj.id} ({line_name}), date {date_str}")
+                except Line.DoesNotExist:
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.warning(f"Line not found for Result delete: {line_name}")
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Failed to clear dashboard cache after Result delete: {e}")
 
 
 class WeeklyResultAggregation(models.Model):
@@ -276,6 +383,64 @@ class WeeklyResultAggregation(models.Model):
 
     def __str__(self):
         return f'{self.date} - {self.line} - {self.part} - {self.judgment} ({self.total_quantity})'
+    
+    def save(self, *args, **kwargs):
+        """保存時にダッシュボードキャッシュをクリア"""
+        super().save(*args, **kwargs)
+        
+        # 集計データ更新時にキャッシュクリア
+        try:
+            from .utils import clear_dashboard_cache
+            from .models import Line
+            
+            date_str = self.date.strftime('%Y-%m-%d')
+            
+            # ライン名からラインIDを取得
+            try:
+                line_obj = Line.objects.get(name=self.line)
+                clear_dashboard_cache(line_obj.id, date_str)
+                
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.info(f"WeeklyResultAggregation saved - Dashboard cache cleared for line {line_obj.id} ({self.line}), date {date_str}")
+            except Line.DoesNotExist:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(f"Line not found for WeeklyResultAggregation save: {self.line}")
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Failed to clear dashboard cache after WeeklyResultAggregation save: {e}")
+    
+    def delete(self, *args, **kwargs):
+        """削除時にダッシュボードキャッシュをクリア"""
+        # 削除前に必要な情報を保存
+        date_str = self.date.strftime('%Y-%m-%d')
+        line_name = self.line
+        
+        super().delete(*args, **kwargs)
+        
+        # 集計データ削除時にキャッシュクリア
+        try:
+            from .utils import clear_dashboard_cache
+            from .models import Line
+            
+            # ライン名からラインIDを取得
+            try:
+                line_obj = Line.objects.get(name=line_name)
+                clear_dashboard_cache(line_obj.id, date_str)
+                
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.info(f"WeeklyResultAggregation deleted - Dashboard cache cleared for line {line_obj.id} ({line_name}), date {date_str}")
+            except Line.DoesNotExist:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(f"Line not found for WeeklyResultAggregation delete: {line_name}")
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Failed to clear dashboard cache after WeeklyResultAggregation delete: {e}")
 
 
 class PartChangeDowntime(models.Model):
@@ -514,6 +679,44 @@ class PlannedHourlyProduction(models.Model):
     def planned_pph(self):
         """計画PPH（時間当たり生産数）"""
         return self.planned_quantity if self.working_seconds >= 3600 else 0
+    
+    def save(self, *args, **kwargs):
+        """保存時にダッシュボードキャッシュをクリア"""
+        super().save(*args, **kwargs)
+        
+        # ダッシュボードキャッシュをクリア
+        try:
+            from .utils import clear_dashboard_cache
+            date_str = self.date.strftime('%Y-%m-%d')
+            clear_dashboard_cache(self.line_id, date_str)
+            
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info(f"PlannedHourlyProduction saved - Dashboard cache cleared for line {self.line_id}, date {date_str}")
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Failed to clear dashboard cache after PlannedHourlyProduction save: {e}")
+    
+    def delete(self, *args, **kwargs):
+        """削除時にダッシュボードキャッシュをクリア"""
+        line_id = self.line_id
+        date_str = self.date.strftime('%Y-%m-%d')
+        
+        super().delete(*args, **kwargs)
+        
+        # ダッシュボードキャッシュをクリア
+        try:
+            from .utils import clear_dashboard_cache
+            clear_dashboard_cache(line_id, date_str)
+            
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info(f"PlannedHourlyProduction deleted - Dashboard cache cleared for line {line_id}, date {date_str}")
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Failed to clear dashboard cache after PlannedHourlyProduction delete: {e}")
 
 
 class UserPreference(models.Model):
@@ -660,6 +863,9 @@ def update_aggregation_on_result_save(sender, instance, created, **kwargs):
                 # WebSocket通知を送信
                 send_aggregation_update_notification(instance)
                 
+                # 予測データの自動更新を削除（不要）
+                # schedule_forecast_update(instance)
+                
             except Exception as e:
                 logger.error(f"実績保存時集計更新エラー（リトライ後）: {e}")
                 
@@ -685,6 +891,53 @@ def update_aggregation_on_result_save(sender, instance, created, **kwargs):
         
     except Exception as e:
         logger.error(f"実績保存シグナルエラー: {e}")
+
+
+def schedule_forecast_update(result_instance):
+    """実績データ更新時に予測更新をスケジュール"""
+    try:
+        from datetime import datetime
+        
+        # タイムスタンプから日付を取得
+        if isinstance(result_instance.timestamp, str):
+            timestamp_dt = datetime.strptime(result_instance.timestamp, '%Y%m%d%H%M%S')
+            target_date = timestamp_dt.date()
+        else:
+            target_date = result_instance.timestamp.date()
+        
+        # ライン名からライン ID を取得
+        try:
+            line = Line.objects.get(name=result_instance.line)
+            line_id = line.id
+        except Line.DoesNotExist:
+            logger.warning(f"予測更新: ライン '{result_instance.line}' が見つかりません")
+            return
+        
+        # 今日のデータの場合のみ予測を更新
+        from django.utils import timezone
+        today = timezone.now().date()
+        
+        if target_date == today:
+            # Celeryタスクで非同期更新
+            try:
+                from .tasks import refresh_forecast_on_data_change_task
+                refresh_forecast_on_data_change_task.delay(
+                    line_id, target_date.strftime('%Y-%m-%d')
+                )
+                logger.debug(f"予測更新タスクをスケジュール: line={line_id}, date={target_date}")
+            except Exception as e:
+                logger.error(f"予測更新タスクスケジュールエラー: {e}")
+                
+                # フォールバック: 直接キャッシュクリア
+                try:
+                    from .utils import clear_dashboard_cache
+                    clear_dashboard_cache(line_id, target_date.strftime('%Y-%m-%d'))
+                    logger.info(f"フォールバック: 予測キャッシュクリア - line={line_id}, date={target_date}")
+                except Exception as fallback_error:
+                    logger.error(f"予測キャッシュクリアエラー: {fallback_error}")
+        
+    except Exception as e:
+        logger.error(f"予測更新スケジュールエラー: {e}")
 
 
 @receiver(post_delete, sender=Result)

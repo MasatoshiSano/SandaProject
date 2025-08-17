@@ -657,17 +657,14 @@ document.addEventListener('DOMContentLoaded', function() {
                 console.log('予測線チェック: mode =', mode);
                 console.log('予測線チェック: forecast_line length =', {{ dashboard_data.forecast_line|default:"[]"|length }});
                 
-                // 予測線データを安全に取得
+                // 予測線データを安全に取得（サーバー側でJSON準備済み）
                 let forecastData = [];
                 if (mode === 'cumulative-total' && {{ dashboard_data.forecast_line|default:"[]"|length }} > 0) {
                     try {
-                        const rawData = '{{ dashboard_data.forecast_line|default:"[]"|escapejs }}';
-                        // PythonのNoneをnullに置換
-                        const cleanData = rawData.replace(/None/g, 'null');
-                        forecastData = JSON.parse(cleanData);
+                        forecastData = {{ forecast_line_json|safe }};
                         console.log('予測線データ:', forecastData);
                     } catch (e) {
-                        console.error('予測線データのパースエラー:', e);
+                        console.error('予測線データの取得エラー:', e);
                         forecastData = [];
                     }
                 }

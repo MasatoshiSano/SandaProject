@@ -1,0 +1,111 @@
+services:
+  # PostgreSQLデータベース
+  db:
+    image: postgres:15-alpine
+    container_name: sandaproject_db_prod
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data_prod:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis
+  redis:
+    image: redis:7-alpine
+    container_name: sandaproject_redis_prod
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data_prod:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Django Webアプリケーション（本番環境）
+  web:
+    build: .
+    container_name: sandaproject_web_prod
+    command: web
+    volumes:
+      - .:/app
+      - static_volume_prod:/app/staticfiles
+      - media_volume_prod:/app/media
+    ports:
+      - "8001:8000"
+    env_file:
+      - .env.prod
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Nginx リバースプロキシ
+  nginx:
+    image: nginx:alpine
+    container_name: sandaproject_nginx_prod
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - static_volume_prod:/app/staticfiles:ro
+      - media_volume_prod:/app/media:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - web
+    healthcheck:
+      test: ["CMD", "nginx", "-t"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Celery Worker
+  worker:
+    build: .
+    container_name: sandaproject_worker_prod
+    command: worker
+    volumes:
+      - .:/app
+      - media_volume_prod:/app/media
+    env_file:
+      - .env.prod
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    deploy:
+      replicas: 2  # 本番環境では複数のワーカーを起動
+
+volumes:
+  postgres_data_prod:
+    driver: local
+  redis_data_prod:
+    driver: local
+  static_volume_prod:
+    driver: local
+  media_volume_prod:
+    driver: local
+
+networks:
+  default:
+    name: sandaproject_network_prod

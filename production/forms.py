@@ -27,8 +27,9 @@ class PlanForm(forms.ModelForm):
         start_time = cleaned_data.get('start_time')
         end_time = cleaned_data.get('end_time')
         
-        if start_time and end_time and end_time <= start_time:
-            raise forms.ValidationError('終了時間は開始時間より後に設定してください。')
+        # 翌日跨ぎの場合は許可（24時間稼働対応）
+        # end_time <= start_time の場合は翌日終了とみなす
+        pass
         
         # 順番の自動調整
         self._adjust_sequence(cleaned_data)
@@ -90,10 +91,10 @@ class PlanForm(forms.ModelForm):
             self.fields['line'].initial = line_id
             self.fields['line'].widget = forms.HiddenInput()
             self.fields['machine'].queryset = Machine.objects.filter(line_id=line_id)
-            # 指定されたラインのアクティブな機種のみ表示
-            self.fields['part'].queryset = Part.objects.filter(line_id=line_id, is_active=True)
+            # アクティブな機種をすべて表示（ラインに関係なく）
+            self.fields['part'].queryset = Part.objects.filter(is_active=True)
         else:
-            # ラインが指定されていない場合はアクティブな機種のみ表示（後でJavaScriptで動的に変更）
+            # ラインが指定されていない場合はアクティブな機種のみ表示
             self.fields['part'].queryset = Part.objects.filter(is_active=True)
 
 
@@ -102,10 +103,9 @@ class PartForm(forms.ModelForm):
     
     class Meta:
         model = Part
-        fields = ['name', 'line', 'part_number', 'category', 'target_pph', 'description', 'is_active']
+        fields = ['name', 'part_number', 'category', 'target_pph', 'description', 'is_active']
         widgets = {
             'name': forms.TextInput(attrs={'class': 'form-control'}),
-            'line': forms.Select(attrs={'class': 'form-select'}),
             'part_number': forms.TextInput(attrs={'class': 'form-control'}),
             'category': forms.Select(attrs={'class': 'form-select'}),
             'target_pph': forms.NumberInput(attrs={'class': 'form-control', 'min': '1'}),
@@ -117,17 +117,6 @@ class PartForm(forms.ModelForm):
         user = kwargs.pop('user', None)
         super().__init__(*args, **kwargs)
         
-        # ユーザーがアクセス可能なラインのみ表示
-        if user:
-            from .utils import get_accessible_lines
-            accessible_lines = get_accessible_lines(user)
-            line_ids = [access.line.id for access in accessible_lines]
-            self.fields['line'].queryset = Line.objects.filter(id__in=line_ids)
-        else:
-            self.fields['line'].queryset = Line.objects.all()
-        
-        self.fields['line'].empty_label = "ラインを選択してください"
-        self.fields['line'].label_from_instance = lambda obj: f"{obj.name} - {obj.description}" if obj.description else obj.name
         self.fields['category'].empty_label = "カテゴリを選択してください"
         
         # 編集時は既存のタグを設定

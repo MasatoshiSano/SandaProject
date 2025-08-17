@@ -19,40 +19,43 @@ class Command(BaseCommand):
         # 1) 既存データ削除（外部キー制約を考慮した順序）
         print('既存データを削除中...')
         
-        # 外部キー制約を無効化してから削除（PostgreSQL用）
-        from django.db import connection
-        cursor = connection.cursor()
-        
         try:
-            # PostgreSQLの場合：制約を一時的に無効化
-            cursor.execute("SET session_replication_role = replica;")
+            # 外部キー制約を考慮した順序で削除
+            print('  Result削除中...')
+            Result.objects.using('default').all().delete()
             
-            # 全テーブルのデータを削除
-            Result.objects.all().delete()
-            Plan.objects.all().delete()
-            PartChangeDowntime.objects.all().delete()
-            WorkCalendar.objects.all().delete()
+            print('  Plan削除中...')
+            Plan.objects.using('default').all().delete()
             
+            print('  PartChangeDowntime削除中...')
+            PartChangeDowntime.objects.using('default').all().delete()
+            
+            print('  WorkCalendar削除中...')
+            WorkCalendar.objects.using('default').all().delete()
+            
+            print('  Part削除中...')
             # Part削除前にtagsのクリア
-            for part in Part.objects.all():
+            for part in Part.objects.using('default').all():
                 part.tags.clear()
-            Part.objects.all().delete()
+            Part.objects.using('default').all().delete()
             
-            Tag.objects.all().delete()
-            Category.objects.all().delete()
-            Machine.objects.all().delete()
-            Line.objects.all().delete()
+            print('  Tag削除中...')
+            Tag.objects.using('default').all().delete()
             
-            # 制約を再有効化
-            cursor.execute("SET session_replication_role = DEFAULT;")
+            print('  Category削除中...')
+            Category.objects.using('default').all().delete()
+            
+            print('  Machine削除中...')
+            Machine.objects.using('default').all().delete()
+            
+            print('  Line削除中...')
+            Line.objects.using('default').all().delete()
+            
+            print('既存データ削除完了')
             
         except Exception as e:
             print(f'データ削除時エラー: {e}')
-            # 制約を確実に再有効化
-            try:
-                cursor.execute("SET session_replication_role = DEFAULT;")
-            except:
-                pass
+            print('エラーを無視して処理を続行します...')
 
         # 2) Line 作成（コード＋日本語説明）
         print('Line を作成中...')
@@ -95,9 +98,15 @@ class Command(BaseCommand):
         print('Category を作成中...')
         categories = []
         for g in range(1, 4):
-            categories.append(Category.objects.create(
-                name=f'Category-{g}', description=f'グループ{g}'
-            ))
+            category, created = Category.objects.get_or_create(
+                name=f'Category-{g}',
+                defaults={'description': f'グループ{g}'}
+            )
+            categories.append(category)
+            if created:
+                print(f'  Category-{g} を作成しました')
+            else:
+                print(f'  Category-{g} は既存です')
 
         # 5) Tag 作成
         print('Tag を作成中...')
@@ -105,22 +114,60 @@ class Command(BaseCommand):
             '重点管理','量産','試作','高難度','検査要',
             '高速装置','新規導入','要調整','QC必要','保守'
         ]
-        tags = [Tag.objects.create(name=tn) for tn in tag_names]
+        tags = []
+        for tn in tag_names:
+            tag, created = Tag.objects.get_or_create(name=tn)
+            tags.append(tag)
+            if created:
+                print(f'  {tn} を作成しました')
+            else:
+                print(f'  {tn} は既存です')
 
-        # 6) Part 作成
+        # 6) Part 作成（同じ機種を複数ラインで生産）
         print('Part を作成中...')
         parts = []
-        for idx, ch in enumerate([chr(c) for c in range(65, 80)]):  # A-O
-            part = Part.objects.create(
-                name=f'Part-{ch}',
-                part_number=f'P{ch}001',
-                category=categories[idx//5],
-                target_pph=random.choice(range(50, 101, 10)),
-                description=f'機種{ch}',
-                is_active=True
-            )
-            part.tags.set(random.sample(tags, k=random.randint(3,5)))
-            parts.append(part)
+        part_names = ['MotorA', 'MotorB', 'HousingX', 'HousingY', 'AssemblyZ']
+        
+        # 各機種を複数のラインで生産できるように設定
+        part_line_combinations = [
+            # MotorA は複数のモータ組立ラインで生産
+            ('MotorA', ['KJMA41', 'KJMA42', 'KJMA43']),
+            # MotorB も複数のモータ組立ラインで生産  
+            ('MotorB', ['KJMA41', 'KJMA42']),
+            # HousingX は複数のハウジング組立ラインで生産
+            ('HousingX', ['KAHA01', 'KAHA02', 'KAHA03', 'KAHA04']),
+            # HousingY は一部のハウジング組立ラインで生産
+            ('HousingY', ['KAHA05', 'KAHA06', 'KAHA07']),
+            # AssemblyZ は巻線ラインで生産
+            ('AssemblyZ', ['KJCW42', 'KJCW43']),
+        ]
+        
+        for part_name, line_codes in part_line_combinations:
+            for line_code in line_codes:
+                # ライン名からLineオブジェクトを取得
+                line = next((l for l in lines if l.name == line_code), None)
+                if not line:
+                    continue
+                    
+                part, created = Part.objects.get_or_create(
+                    part_number=f'{part_name}-{line_code}',
+                    defaults={
+                        'name': part_name,
+                        'line': line,
+                        'category': categories[len(parts) % len(categories)],
+                        'target_pph': random.choice(range(50, 101, 10)),
+                        'description': f'{part_name}（{line.description}用）',
+                        'is_active': True
+                    }
+                )
+                if created:
+                    part.tags.set(random.sample(tags, k=random.randint(3,5)))
+                    print(f'  {part_name} を {line.name} ラインに作成しました')
+                else:
+                    print(f'  {part_name} @ {line.name} は既存です')
+                parts.append(part)
+        
+        print(f'合計 {len(parts)} 件の機種×ライン組み合わせを作成しました')
 
         # 7) PartChangeDowntime 作成
         print('PartChangeDowntime を作成中...')
@@ -158,8 +205,8 @@ class Command(BaseCommand):
 
         # 9) Plan 作成
         print('Plan を作成中...')
-        start = date(2025,7,1)
-        end = date(2025,10,1)
+        start = date(2025,8,1)
+        end = date(2025,9,1)
         day = timedelta(days=1)
         dt = start
         plan_objs = []
@@ -178,4 +225,5 @@ class Command(BaseCommand):
         Plan.objects.bulk_create(plan_objs)
 
         print('サンプルデータ投入が完了しました。')
+        print('※ 計画PPH計算は手動で実行してください: python manage.py calculate_planned_pph --date 2025-07-01 --days 92')
 

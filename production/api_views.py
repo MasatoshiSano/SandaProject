@@ -17,7 +17,7 @@ from django.utils import timezone
 from django.views import View
 
 from .models import Line, ProductionForecastSettings, ProductionForecast
-from .services.forecast_service import ForecastCalculationService
+from .services.forecast_service import ForecastCalculationService, OptimizedForecastService
 from .utils import get_accessible_lines
 
 logger = logging.getLogger('production.forecast')
@@ -121,9 +121,46 @@ class ForecastAPIView(View):
             )
     
     def _calculate_forecast(self, line_id: int, target_date: date) -> JsonResponse:
-        """予測計算実行"""
-        service = ForecastCalculationService()
-        result = service.calculate_completion_forecast(line_id, target_date)
+        """予測計算実行（最適化版）"""
+        service = OptimizedForecastService()
+        
+        # OptimizedForecastServiceは予測時刻文字列を返すため、レスポンス形式を調整
+        try:
+            forecast_time_str = service.get_forecast_time(line_id, target_date)
+            
+            # エラーケースの処理
+            if forecast_time_str in ['計画なし', '完了済み', '計算エラー']:
+                result = {
+                    'success': True,
+                    'completion_time': None,
+                    'message': forecast_time_str,
+                    'confidence': 0 if forecast_time_str == '計算エラー' else 100
+                }
+            else:
+                # 正常な時刻が返された場合
+                from datetime import datetime
+                try:
+                    completion_time = datetime.strptime(forecast_time_str, '%H:%M').time()
+                    result = {
+                        'success': True,
+                        'completion_time': completion_time,
+                        'confidence': 85,  # 最適化版のデフォルト信頼度
+                        'is_delayed': completion_time > datetime.strptime('17:00', '%H:%M').time(),
+                        'is_next_day': False  # OptimizedForecastServiceでは当日完了前提
+                    }
+                except ValueError:
+                    result = {
+                        'success': False,
+                        'error': '時刻解析エラー',
+                        'message': '計算エラー'
+                    }
+        except Exception as e:
+            logger.error(f"最適化予測計算エラー: {e}", exc_info=True)
+            result = {
+                'success': False,
+                'error': str(e),
+                'message': '計算エラー'
+            }
         
         if result['success']:
             # 正常計算結果

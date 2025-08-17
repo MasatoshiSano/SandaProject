@@ -149,11 +149,16 @@ class DashboardView(LineAccessMixin, TemplateView):
             logger.error(f"Error filtering dashboard data: {e}")
             filtered_dashboard_data = dashboard_data
         
+        # forecast_lineを安全なJSONとして準備
+        import json
+        forecast_line_json = json.dumps(filtered_dashboard_data.get('forecast_line', []))
+        
         context.update({
             'line': line,
             'date': date_obj,
             'date_str': date_str,
             'dashboard_data': filtered_dashboard_data,
+            'forecast_line_json': forecast_line_json,
             'visible_cards': visible_cards,
             'prev_date': (date_obj - timedelta(days=1)).strftime('%Y-%m-%d'),
             'next_date': (date_obj + timedelta(days=1)).strftime('%Y-%m-%d'),

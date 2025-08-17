@@ -103,15 +103,15 @@ class TagAdmin(admin.ModelAdmin):
 
 @admin.register(Part)
 class PartAdmin(admin.ModelAdmin):
-    list_display = ['name', 'line', 'category', 'target_pph', 'cycle_time', 'is_active', 'created_at']
-    list_filter = ['line', 'category', 'is_active', 'created_at']
-    search_fields = ['name', 'line__name', 'category__name']
+    list_display = ['name', 'category', 'target_pph', 'cycle_time', 'is_active', 'created_at']
+    list_filter = ['category', 'is_active', 'created_at']
+    search_fields = ['name', 'category__name']
     filter_horizontal = ['tags']
     readonly_fields = ['cycle_time']
     
     fieldsets = [
         ('基本情報', {
-            'fields': ['name', 'line', 'part_number', 'category']
+            'fields': ['name', 'part_number', 'category']
         }),
         ('設定', {
             'fields': ['target_pph', 'cycle_time', 'description', 'is_active']
@@ -145,40 +145,39 @@ class ResultAdmin(admin.ModelAdmin):
     list_per_page = 100  # 1ページあたりの表示件数
     
     def get_queryset(self, request):
-        """デフォルトで最新の範囲に制限"""
-        qs = super().get_queryset(request)
-        # 常にtimestampで降順ソート
-        qs = qs.order_by('-timestamp')
-        
-        # 検索やフィルタが適用されていない場合のみ時間範囲で制限
-        if not request.GET.get('q') and not any(key in request.GET for key in ['line', 'machine', 'part', 'judgment']):
-            # 最新の時間範囲から制限（スライスではなくフィルタを使用）
-            # 最新のタイムスタンプを取得して、そこから一定時間範囲のデータのみ表示
-            try:
-                latest = qs.first()
-                if latest and latest.timestamp:
-                    # 最新から約1週間分のデータのみ表示（YYYYMMDDhhmmss形式）
-                    latest_timestamp = latest.timestamp
-                    # 1週間前の日付を計算（文字列操作）
-                    if len(latest_timestamp) >= 8:
-                        from datetime import datetime, timedelta
-                        # YYYYMMDDの部分を取得
-                        date_str = latest_timestamp[:8]
-                        try:
-                            # 日付に変換
-                            date_obj = datetime.strptime(date_str, '%Y%m%d')
-                            # 7日前の日付を計算
-                            start_date = date_obj - timedelta(days=7)
-                            start_timestamp = start_date.strftime('%Y%m%d') + "000000"
-                            return qs.filter(timestamp__gte=start_timestamp)
-                        except ValueError:
-                            # 日付変換に失敗した場合は元の処理を継続
-                            pass
-            except Exception:
-                # エラーが発生した場合はそのまま返す
-                pass
-        
-        return qs
+        """デフォルトで最新の範囲に制限（Oracle接続エラー対応）"""
+        try:
+            qs = super().get_queryset(request)
+            # 常にtimestampで降順ソート
+            qs = qs.order_by('-timestamp')
+            
+            # 検索やフィルタが適用されていない場合のみ時間範囲で制限
+            if not request.GET.get('q') and not any(key in request.GET for key in ['line', 'machine', 'part', 'judgment']):
+                # 今日から1週間前までのデータのみ表示（固定範囲）
+                from datetime import datetime, timedelta
+                from django.utils import timezone
+                
+                today = timezone.now().date()
+                week_ago = today - timedelta(days=7)
+                
+                # YYYYMMDDhhmmss形式で範囲を指定
+                start_timestamp = week_ago.strftime('%Y%m%d') + "000000"
+                end_timestamp = (today + timedelta(days=1)).strftime('%Y%m%d') + "000000"
+                
+                qs = qs.filter(
+                    timestamp__gte=start_timestamp,
+                    timestamp__lt=end_timestamp,
+                    sta_no1='SAND'  # フィルタ条件を追加
+                )
+            
+            return qs
+            
+        except Exception as e:
+            # Oracle接続エラーの場合は空のクエリセットを返す
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Result管理画面クエリエラー: {e}")
+            return Result.objects.none()
     
     def changelist_view(self, request, extra_context=None):
         """管理画面のリストビューに警告メッセージを追加"""

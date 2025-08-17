@@ -1,5 +1,5 @@
 """
-Docker環境用のDjango設定ファイル
+本番環境用のDjango設定ファイル（現行Oracleサーバ使用）
 """
 
 import os
@@ -29,9 +29,9 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-docker-key-change-in-production')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.environ.get('DEBUG', 'False').lower() == 'true'
+DEBUG = True  # Docker環境では静的ファイル提供のためTrueに設定
 
-ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1,web').split(',')
+ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1,web,nginx').split(',')
 
 # Application definition
 INSTALLED_APPS = [
@@ -66,8 +66,9 @@ MIDDLEWARE = [
     # allauth middleware
     'allauth.account.middleware.AccountMiddleware',
     
-    # ライン アクセス チェック
-    'production.middleware.LineAccessRedirectMiddleware',
+    # パフォーマンス監視
+    'production.middleware.PerformanceMonitoringMiddleware',
+    'production.middleware.DashboardCacheMiddleware',
 ]
 
 ROOT_URLCONF = 'config.urls'
@@ -92,7 +93,7 @@ TEMPLATES = [
 WSGI_APPLICATION = 'config.wsgi.application'
 ASGI_APPLICATION = 'config.asgi.application'
 
-# Database
+# Database - パフォーマンス最適化
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
@@ -104,26 +105,42 @@ DATABASES = {
         'OPTIONS': {
             'client_encoding': 'UTF8',
         },
+        'CONN_MAX_AGE': 600,  # 接続プール: 10分間保持
     },
+    # Docker Compose Oracle（開発・テスト用）
     'oracle': {
         'ENGINE': 'django.db.backends.oracle',
-        'NAME': 'HHS001',
-        'USER': 'ZHH001',
-        'PASSWORD': 'ZHH001_99',
-        'HOST': '10.168.252.16',
-        'PORT': '1521',
-        'OPTIONS': {},
+        'NAME': f"{os.environ.get('ORACLE_HOST', 'oracle')}:{os.environ.get('ORACLE_PORT', '1521')}/{os.environ.get('ORACLE_SERVICE_NAME', 'xepdb1')}",
+        'USER': os.environ.get('ORACLE_USER', 'system'),
+        'PASSWORD': os.environ.get('ORACLE_PASSWORD', 'oracle123'),
+        'OPTIONS': {
+            # SERVICE_NAME接続用の設定
+        },
+        'CONN_MAX_AGE': 60,  # 接続プール: 1分間保持（短縮）
+        'CONN_HEALTH_CHECKS': True,  # 接続健全性チェック
     }
 }
 
 # Database Router
 DATABASE_ROUTERS = ['production.routers.DatabaseRouter']
 
-# Cache (Redis)
+# Cache (Redis) - パフォーマンス最適化
 CACHES = {
     'default': {
-        'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+        'BACKEND': 'django_redis.cache.RedisCache',
         'LOCATION': f"redis://{os.environ.get('REDIS_HOST', 'redis')}:{os.environ.get('REDIS_PORT', '6379')}/1",
+        'OPTIONS': {
+            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+            'CONNECTION_POOL_KWARGS': {
+                'max_connections': 50,
+                'retry_on_timeout': True,
+            },
+            'COMPRESSOR': 'django_redis.compressors.zlib.ZlibCompressor',
+            'IGNORE_EXCEPTIONS': True,
+        },
+        'TIMEOUT': 300,  # デフォルト5分
+        'KEY_PREFIX': 'sanda_prod',
+        'VERSION': 1,
     }
 }
 
@@ -136,6 +153,14 @@ CHANNEL_LAYERS = {
         },
     },
 }
+
+# Celery設定
+CELERY_BROKER_URL = f"redis://{os.environ.get('REDIS_HOST', 'redis')}:{os.environ.get('REDIS_PORT', '6379')}/0"
+CELERY_RESULT_BACKEND = f"redis://{os.environ.get('REDIS_HOST', 'redis')}:{os.environ.get('REDIS_PORT', '6379')}/0"
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TIMEZONE = 'Asia/Tokyo'
 
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
@@ -193,13 +218,13 @@ ACCOUNT_USERNAME_REQUIRED = True
 ACCOUNT_LOGOUT_ON_GET = True
 
 # セキュリティ設定（本番環境用）
-if not DEBUG:
-    SECURE_BROWSER_XSS_FILTER = True
-    SECURE_CONTENT_TYPE_NOSNIFF = True
-    X_FRAME_OPTIONS = 'DENY'
-    SECURE_HSTS_SECONDS = 3600
-    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
-    SECURE_HSTS_PRELOAD = True
+SECURE_BROWSER_XSS_FILTER = True
+SECURE_CONTENT_TYPE_NOSNIFF = True
+X_FRAME_OPTIONS = 'DENY'
+SECURE_HSTS_SECONDS = 3600
+SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+SECURE_HSTS_PRELOAD = True
+SECURE_SSL_REDIRECT = os.environ.get('SECURE_SSL_REDIRECT', 'False').lower() == 'true'
 
 # ログ設定
 LOGGING = {

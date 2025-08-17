@@ -2,12 +2,32 @@
     <div class="card metric-card border-secondary" id="forecast-card">
         <div class="card-body text-center">
             <div class="metric-value text-dark" id="forecast-time">
-                計算中...
+                {% if dashboard_data.forecast_time %}
+                    {{ dashboard_data.forecast_time }}
+                {% else %}
+                    --:--
+                {% endif %}
             </div>
             <div class="metric-label text-muted">{{ card_config.name }}</div>
             <small class="text-muted">
                 <i class="bi bi-clock me-1"></i>
-                <span id="forecast-status">計算中</span>
+                <span id="forecast-status">
+                    {% if dashboard_data.forecast_time %}
+                        {% if dashboard_data.forecast_time == '計画データなし' %}
+                            計画なし
+                        {% elif dashboard_data.forecast_time == '生産完了済み' %}
+                            完了済み
+                        {% elif dashboard_data.forecast_time == '計算エラー' %}
+                            エラー
+                        {% elif dashboard_data.forecast_time == '計算不可' %}
+                            計算不可
+                        {% else %}
+                            予測時刻
+                        {% endif %}
+                    {% else %}
+                        データなし
+                    {% endif %}
+                </span>
             </small>
         </div>
     </div>

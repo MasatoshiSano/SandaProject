@@ -464,11 +464,15 @@ document.addEventListener('DOMContentLoaded', function() {
             const start = new Date(`2000-01-01T${startTime}`);
             const end = new Date(`2000-01-01T${endTime}`);
             
-            if (end > start) {
-                const diffMinutes = (end - start) / (1000 * 60);
-                document.getElementById('duration-display').textContent = diffMinutes;
+            let diffMinutes;
+            if (end <= start) {
+                // 翌日終了の場合（24時間稼働）
+                const nextDayEnd = new Date(end.getTime() + 24 * 60 * 60 * 1000);
+                diffMinutes = (nextDayEnd - start) / (1000 * 60);
+                document.getElementById('duration-display').textContent = diffMinutes + ' (翌日終了)';
             } else {
-                document.getElementById('duration-display').textContent = '-';
+                diffMinutes = (end - start) / (1000 * 60);
+                document.getElementById('duration-display').textContent = diffMinutes;
             }
         } else {
             document.getElementById('duration-display').textContent = '-';
@@ -492,12 +496,17 @@ document.addEventListener('DOMContentLoaded', function() {
         const start = new Date(`2000-01-01T${startTime}`);
         const end = new Date(`2000-01-01T${endTime}`);
         
+        // 24時間稼働対応：終了時間が開始時間以下の場合は翌日とみなす
+        let durationMinutes;
         if (end <= start) {
-            alert('終了時間は開始時間より後に設定してください。');
-            return;
+            // 翌日終了の場合（24時間稼働）
+            const nextDayEnd = new Date(end.getTime() + 24 * 60 * 60 * 1000);
+            durationMinutes = (nextDayEnd - start) / (1000 * 60);
+        } else {
+            durationMinutes = (end - start) / (1000 * 60);
         }
         
-        const durationMinutes = (end - start) / (1000 * 60);
+        // durationMinutesは上で計算済み
         
         fetch(`/production/api/part-info/${partId}/`)
             .then(response => response.json())
@@ -538,11 +547,8 @@ document.addEventListener('DOMContentLoaded', function() {
             const start = new Date(`2000-01-01T${startTime}`);
             const end = new Date(`2000-01-01T${endTime}`);
             
-            if (end <= start) {
-                e.preventDefault();
-                alert('終了時間は開始時間より後に設定してください。');
-                return false;
-            }
+            // 24時間稼働対応：終了時間が開始時間以下でも許可（翌日終了とみなす）
+            // バリデーションは削除
         }
     });
 });

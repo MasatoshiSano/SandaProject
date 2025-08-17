@@ -445,8 +445,10 @@ def generate_forecast_line_data(line_id, date, forecast_time, hourly_data, total
         # デバッグ用：現在時刻情報
         logger.debug(f"予測線生成: 現在時刻={now}, current_hour={current_hour}, 予測時刻={forecast_time}")
         
-        # 現在時刻での実績累積を取得（total_actualは既に累積値）
+        # 現在時刻での実績累積を取得
         current_actual_cumulative = 0
+        
+        # 全ての時間別データから現在時刻までの累積実績を算出
         for hour_data in hourly_data:
             hour = hour_data['hour']
             
@@ -472,11 +474,12 @@ def generate_forecast_line_data(line_id, date, forecast_time, hourly_data, total
                     continue  # 無効なデータはスキップ
             except (ValueError, AttributeError):
                 continue
-                
+            
+            # 現在時刻以前または同じ時刻の累積実績を取得
             if hour_num <= current_hour:
-                current_actual_cumulative = hour_data.get('total_actual', 0)  # 最新の累積値を取得
-            else:
-                break
+                # total_actualが累積値として存在する場合はそれを使用
+                if hour_data.get('total_actual', 0) > 0:
+                    current_actual_cumulative = hour_data['total_actual']
         
         # 現在時刻が見つからない場合の処理
         if current_actual_cumulative == 0 and hourly_data:
@@ -504,19 +507,18 @@ def generate_forecast_line_data(line_id, date, forecast_time, hourly_data, total
         # 予測線データを生成
         forecast_line = []
         
-        # デバッグ情報
-        logger.info(f"予測線計算: current_hour={current_hour}, current_actual={current_actual_cumulative}, total_planned={total_planned}")
-        
         # 現在時刻から予測終了時刻まで線形に補間
         remaining_planned = total_planned - current_actual_cumulative
         forecast_end_hour = forecast_hour + forecast_minute/60
+        
+        # デバッグ情報
+        logger.info(f"予測線計算: current_hour={current_hour}, current_actual={current_actual_cumulative}, total_planned={total_planned}")
+        logger.info(f"予測線計算: remaining={remaining_planned}, forecast_end_hour={forecast_end_hour}")
         
         # 予測完了時刻が現在時刻より前の場合（既に完了済み）
         if forecast_end_hour < current_hour:
             logger.info(f"予測線生成: 予測完了時刻({forecast_end_hour})が現在時刻({current_hour})より前のため、完了済み扱い")
             return []
-        
-        logger.info(f"予測線計算: remaining={remaining_planned}, forecast_end_hour={forecast_end_hour}")
         
         for hour_data in hourly_data:
             hour = hour_data['hour']
@@ -544,36 +546,29 @@ def generate_forecast_line_data(line_id, date, forecast_time, hourly_data, total
             except (ValueError, AttributeError):
                 continue
             
-            if hour_num <= current_hour - 1:  # 現在時刻より1時間以上前
-                # 現在時刻より前はNullで表示しない
-                forecast_line.append({
-                    'hour': hour,  # 元の形式を保持
-                    'forecast_cumulative': None
-                })
-            elif hour_num <= forecast_end_hour + 0.5:  # 予測終了時刻の30分後まで含む
-                # 現在時刻から予測終了時刻まで線形補間
-                if forecast_end_hour > current_hour:
-                    if hour_num < current_hour:
-                        # 現在時刻より前の時間は実績値を表示
-                        forecast_cumulative = hour_data.get('total_actual', 0)
-                    elif hour_num <= forecast_end_hour:
-                        # 現在時刻以降は線形補間
+            if hour_num <= forecast_end_hour + 0.5:  # 予測終了時刻の30分後まで含む
+                # 予測線の値を計算
+                if hour_num < current_hour:
+                    # 現在時刻より前の時間は実績値を表示
+                    forecast_cumulative = hour_data.get('total_actual', 0)
+                elif hour_num == current_hour:
+                    # 現在時刻では現在の累積実績を表示
+                    forecast_cumulative = current_actual_cumulative
+                elif hour_num <= forecast_end_hour:
+                    # 現在時刻以降は線形補間
+                    if forecast_end_hour > current_hour:
                         progress_ratio = (hour_num - current_hour) / (forecast_end_hour - current_hour)
                         forecast_cumulative = current_actual_cumulative + (remaining_planned * progress_ratio)
                     else:
-                        # 予測終了時刻直後の時間枠では完了予定値を表示
                         forecast_cumulative = total_planned
-                    
-                    forecast_line.append({
-                        'hour': hour,  # 元の形式を保持
-                        'forecast_cumulative': round(forecast_cumulative)
-                    })
                 else:
-                    # 予測時刻が現在時刻より前の場合（完了済み）
-                    forecast_line.append({
-                        'hour': hour,
-                        'forecast_cumulative': total_planned
-                    })
+                    # 予測終了時刻直後の時間枠では完了予定値を表示
+                    forecast_cumulative = total_planned
+                
+                forecast_line.append({
+                    'hour': hour,  # 元の形式を保持
+                    'forecast_cumulative': round(forecast_cumulative)
+                })
             else:
                 # 予測終了時刻以降はnullで表示しない
                 forecast_line.append({

@@ -20,7 +20,7 @@ RUN apt-get update \
         netcat-openbsd \
         wget \
         unzip \
-        libaio1 \
+        libaio1t64 \
         && rm -rf /var/lib/apt/lists/*
 
 # Node.js（claude codeに必要）をインストール
