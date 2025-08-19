@@ -106,7 +106,7 @@ class AggregationService:
             start_timestamp_str = start_datetime.strftime('%Y%m%d%H%M%S')
             end_timestamp_str = end_datetime.strftime('%Y%m%d%H%M%S')
             
-            results = Result.objects.filter(
+            results = Result.objects.using('oracle').filter(
                 line=line_name,
                 timestamp__gte=start_timestamp_str,
                 timestamp__lt=end_timestamp_str
@@ -233,7 +233,7 @@ class AggregationService:
                 end_timestamp_str = end_datetime.strftime('%Y%m%d%H%M%S')
                 
                 # 同じ条件の実績データを集計
-                result_data = Result.objects.filter(
+                result_data = Result.objects.using('oracle').filter(
                     line=result_instance.line,
                     machine=result_instance.machine or '',
                     part=result_instance.part,
@@ -297,7 +297,7 @@ class AggregationService:
                     start_timestamp_str = start_datetime.strftime('%Y%m%d%H%M%S')
                     end_timestamp_str = end_datetime.strftime('%Y%m%d%H%M%S')
                     
-                    result_data = Result.objects.filter(
+                    result_data = Result.objects.using('oracle').filter(
                         line=result_instance.line,
                         machine=result_instance.machine or '',
                         part=result_instance.part,
@@ -350,7 +350,7 @@ class AggregationService:
             start_timestamp_str = start_datetime.strftime('%Y%m%d%H%M%S')
             end_timestamp_str = end_datetime.strftime('%Y%m%d%H%M%S')
             
-            source_data = Result.objects.filter(
+            source_data = Result.objects.using('oracle').filter(
                 line=line_name,
                 timestamp__gte=start_timestamp_str,
                 timestamp__lt=end_timestamp_str

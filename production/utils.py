@@ -145,7 +145,7 @@ def calculate_input_count_optimized(line_id, date_str, machine_names=None):
         end_str = next_day_work_start.strftime('%Y%m%d%H%M%S')
         
         # 投入数を計算（COUNT クエリで最適化）
-        input_count = Result.objects.filter(
+        input_count = Result.objects.using('oracle').filter(
             line=line_name,
             machine__in=machine_names,
             timestamp__gte=start_str,
@@ -201,7 +201,7 @@ def get_part_actuals_bulk(line_id, date, part_names):
         count_target_machine_names = [m.name for m in count_target_machines]
         
         # 一括でGROUP BYクエリを実行
-        results = Result.objects.filter(
+        results = Result.objects.using('oracle').filter(
             line=line_name,
             machine__in=count_target_machine_names,
             part__in=part_names,  # IN句で全機種を指定
@@ -306,7 +306,7 @@ def get_dashboard_data(line_id, date_str):
     end_str = next_day_work_start.strftime('%Y%m%d%H%M%S')
     
     # --- 7. 実績データを一括取得（最適化されたクエリ） ---
-    results_query = Result.objects.filter(
+    results_query = Result.objects.using('oracle').filter(
         line=line_name,
         machine__in=count_target_machine_names,
         timestamp__gte=start_str,
@@ -372,7 +372,7 @@ def get_dashboard_data(line_id, date_str):
 
     # --- 12. 結果データ構築 ---
     # --- 13. 予測線データ生成 ---
-    forecast_line_data = generate_forecast_line_data(line_id, date, forecast_time, hourly_data, total_planned)
+    forecast_line_data = generate_forecast_line_data(line_id, date, forecast_time, hourly_data, total_planned, total_actual)
     logger.info(f"forecast_line_data: {forecast_line_data}")
     dashboard_data = {
         'parts': list(part_data.values()),
@@ -396,7 +396,7 @@ def get_dashboard_data(line_id, date_str):
     return dashboard_data
 
 
-def generate_forecast_line_data(line_id, date, forecast_time, hourly_data, total_planned):
+def generate_forecast_line_data(line_id, date, forecast_time, hourly_data, total_planned, total_actual):
     """
     予測線用の時間別データを生成
     
@@ -406,6 +406,7 @@ def generate_forecast_line_data(line_id, date, forecast_time, hourly_data, total
         forecast_time: 予測終了時刻 (文字列)
         hourly_data: 既存の時間別データ
         total_planned: 総計画数
+        total_actual: 総実績数（正確な値）
         
     Returns:
         list: 予測線用の時間別累積データ
@@ -445,64 +446,9 @@ def generate_forecast_line_data(line_id, date, forecast_time, hourly_data, total
         # デバッグ用：現在時刻情報
         logger.debug(f"予測線生成: 現在時刻={now}, current_hour={current_hour}, 予測時刻={forecast_time}")
         
-        # 現在時刻での実績累積を取得
-        current_actual_cumulative = 0
-        
-        # 全ての時間別データから現在時刻までの累積実績を算出
-        for hour_data in hourly_data:
-            hour = hour_data['hour']
-            
-            # 時間データを数値に変換
-            try:
-                if isinstance(hour, str):
-                    # "08:30(08:45~)" のような形式から時間を抽出
-                    hour_match = re.match(r'(\d{1,2}):(\d{2})', hour)
-                    if hour_match:
-                        hour_num = int(hour_match.group(1)) + int(hour_match.group(2)) / 60
-                        # 夜勤の場合の時刻調整（翌日の朝の時刻は24時間を追加）
-                        if hour_num < 8:
-                            hour_num += 24
-                    else:
-                        hour_num = int(hour.split(':')[0])  # 時間部分のみ
-                        if hour_num < 8:
-                            hour_num += 24
-                elif isinstance(hour, (int, float)):
-                    hour_num = hour
-                    if hour_num < 8:
-                        hour_num += 24
-                else:
-                    continue  # 無効なデータはスキップ
-            except (ValueError, AttributeError):
-                continue
-            
-            # 現在時刻以前または同じ時刻の累積実績を取得
-            if hour_num <= current_hour:
-                # total_actualが累積値として存在する場合はそれを使用
-                if hour_data.get('total_actual', 0) > 0:
-                    current_actual_cumulative = hour_data['total_actual']
-        
-        # 現在時刻が見つからない場合の処理
-        if current_actual_cumulative == 0 and hourly_data:
-            # 最も近い過去の時刻の実績を使用
-            for hour_data in reversed(hourly_data):
-                hour = hour_data['hour']
-                try:
-                    if isinstance(hour, str):
-                        hour_match = re.match(r'(\d{1,2}):(\d{2})', hour)
-                        if hour_match:
-                            hour_num = int(hour_match.group(1)) + int(hour_match.group(2)) / 60
-                        else:
-                            hour_num = int(hour.split(':')[0])
-                    elif isinstance(hour, (int, float)):
-                        hour_num = hour
-                    else:
-                        continue
-                except (ValueError, AttributeError):
-                    continue
-                    
-                if hour_num <= current_hour and hour_data.get('total_actual', 0) > 0:
-                    current_actual_cumulative = hour_data['total_actual']
-                    break
+        # 現在時刻での実績累積を取得（正確な総実績値を使用）
+        # 時間別データの累積値が不正確な場合があるため、総実績値をそのまま使用
+        current_actual_cumulative = total_actual
         
         # 予測線データを生成
         forecast_line = []
@@ -513,12 +459,52 @@ def generate_forecast_line_data(line_id, date, forecast_time, hourly_data, total
         
         # デバッグ情報
         logger.info(f"予測線計算: current_hour={current_hour}, current_actual={current_actual_cumulative}, total_planned={total_planned}")
-        logger.info(f"予測線計算: remaining={remaining_planned}, forecast_end_hour={forecast_end_hour}")
+        logger.info(f"予測線計算: remaining={remaining_planned}, forecast_end_hour={forecast_end_hour} (before adjustment)")
         
-        # 予測完了時刻が現在時刻より前の場合（既に完了済み）
-        if forecast_end_hour < current_hour:
-            logger.info(f"予測線生成: 予測完了時刻({forecast_end_hour})が現在時刻({current_hour})より前のため、完了済み扱い")
-            return []
+        # 予測完了時刻が現在時刻より前の場合の処理
+        if forecast_end_hour <= current_hour:
+            logger.info(f"予測線生成: 予測完了時刻({forecast_end_hour})が現在時刻({current_hour})以前のため、詳細予測で再計算")
+            # 残り生産数がある場合は詳細予測サービスを使用
+            if remaining_planned > 0:
+                try:
+                    from .services.forecast_service import OptimizedForecastService
+                    forecast_service = OptimizedForecastService()
+                    
+                    # 詳細予測計算（休憩時間、段替え時間、機種PPHを考慮）
+                    forecast_result = forecast_service._calculate_forecast_with_breaks(line_id, date)
+                    
+                    if forecast_result and ':' in forecast_result:
+                        # 予測時刻を時間数値に変換
+                        time_parts = forecast_result.split(':')
+                        forecast_hour = int(time_parts[0])
+                        forecast_minute = int(time_parts[1])
+                        forecast_end_hour = forecast_hour + forecast_minute / 60
+                        
+                        # 夜勤対応（翌日の朝の時刻は24時間を加算）
+                        if forecast_hour < 8:
+                            forecast_end_hour += 24
+                        
+                        # 予測時刻が現在時刻より前の場合は無効と判断
+                        if forecast_end_hour <= current_hour:
+                            logger.warning(f"詳細予測が現在時刻より前を返した: {forecast_result} (hour={forecast_end_hour}), 簡易計算を使用")
+                            forecast_end_hour = current_hour + max(1.0, remaining_planned / 100)
+                        else:
+                            logger.info(f"詳細予測による終了時刻: {forecast_result} (hour={forecast_end_hour})")
+                    else:
+                        # 詳細予測に失敗した場合の簡易計算
+                        forecast_end_hour = current_hour + max(1.0, remaining_planned / 100)
+                        logger.warning(f"詳細予測失敗、簡易計算を使用: {forecast_end_hour}")
+                        
+                except Exception as e:
+                    logger.warning(f"詳細予測エラー: {e}, 簡易計算を使用")
+                    # エラー時の簡易計算
+                    forecast_end_hour = current_hour + max(1.0, remaining_planned / 100)
+            else:
+                # 既に完成している場合でも線を表示するため、現在時刻の次の時間を設定
+                forecast_end_hour = current_hour + 0.5
+        
+        # 調整後の予測終了時刻をログ出力
+        logger.info(f"予測線計算: forecast_end_hour={forecast_end_hour} (after adjustment)")
         
         for hour_data in hourly_data:
             hour = hour_data['hour']
@@ -546,28 +532,41 @@ def generate_forecast_line_data(line_id, date, forecast_time, hourly_data, total
             except (ValueError, AttributeError):
                 continue
             
+            logger.debug(f"処理中の時刻: hour={hour}, hour_num={hour_num}, current_hour={current_hour}, forecast_end_hour={forecast_end_hour}")
+            
             if hour_num <= forecast_end_hour + 0.5:  # 予測終了時刻の30分後まで含む
                 # 予測線の値を計算
                 if hour_num < current_hour:
-                    # 現在時刻より前の時間は実績値を表示
-                    forecast_cumulative = hour_data.get('total_actual', 0)
-                elif hour_num == current_hour:
-                    # 現在時刻では現在の累積実績を表示
-                    forecast_cumulative = current_actual_cumulative
-                elif hour_num <= forecast_end_hour:
-                    # 現在時刻以降は線形補間
+                    # 現在時刻より前の時間は予測線を表示しない（実績データのみ）
+                    forecast_cumulative = None
+                    logger.debug(f"過去時刻でNone設定: hour_num={hour_num}")
+                elif hour_num >= current_hour and hour_num <= forecast_end_hour:
+                    # 現在時刻以降は詳細予測を考慮した線形補間
                     if forecast_end_hour > current_hour:
-                        progress_ratio = (hour_num - current_hour) / (forecast_end_hour - current_hour)
-                        forecast_cumulative = current_actual_cumulative + (remaining_planned * progress_ratio)
+                        # 詳細予測に基づいた進捗計算
+                        try:
+                            # 休憩時間と段替え時間を考慮した実際の作業時間比率を計算
+                            forecast_cumulative = _calculate_hourly_forecast_with_breaks(
+                                line_id, date, hour_num, current_hour, forecast_end_hour,
+                                current_actual_cumulative, total_planned, remaining_planned
+                            )
+                            logger.debug(f"詳細線形補間: hour_num={hour_num}, forecast_cumulative={forecast_cumulative}")
+                        except Exception as e:
+                            # エラー時は従来の線形補間
+                            progress_ratio = (hour_num - current_hour) / (forecast_end_hour - current_hour)
+                            forecast_cumulative = current_actual_cumulative + (remaining_planned * progress_ratio)
+                            logger.debug(f"簡易線形補間: hour_num={hour_num}, progress_ratio={progress_ratio:.3f}, forecast_cumulative={forecast_cumulative}")
                     else:
+                        # 予測終了時刻が現在時刻と同じかそれより前の場合は完了値
                         forecast_cumulative = total_planned
+                        logger.debug(f"完了値設定: hour_num={hour_num}, forecast_cumulative={forecast_cumulative}")
                 else:
                     # 予測終了時刻直後の時間枠では完了予定値を表示
                     forecast_cumulative = total_planned
                 
                 forecast_line.append({
                     'hour': hour,  # 元の形式を保持
-                    'forecast_cumulative': round(forecast_cumulative)
+                    'forecast_cumulative': round(forecast_cumulative) if forecast_cumulative is not None else None
                 })
             else:
                 # 予測終了時刻以降はnullで表示しない
@@ -579,11 +578,128 @@ def generate_forecast_line_data(line_id, date, forecast_time, hourly_data, total
         # JavaScript用にJSONシリアライズ可能にする（NoneをJavaScriptのnullに変換）
         import json
         json_forecast_line = json.loads(json.dumps(forecast_line))
+        logger.info(f"forecast_line_data: {forecast_line}")
         return json_forecast_line
         
     except Exception as e:
         logger.error(f"予測線データ生成エラー: {e}")
         return []
+
+
+def _calculate_hourly_forecast_with_breaks(line_id, date, hour_num, current_hour, forecast_end_hour, 
+                                         current_actual, total_planned, remaining_planned):
+    """
+    休憩時間と段替え時間を考慮した時間別予測計算
+    
+    Args:
+        line_id: ライン ID
+        date: 対象日付
+        hour_num: 予測対象時刻（数値）
+        current_hour: 現在時刻（数値）
+        forecast_end_hour: 予測終了時刻（数値）
+        current_actual: 現在の累積実績
+        total_planned: 総計画数
+        remaining_planned: 残り計画数
+        
+    Returns:
+        int: 予測累積数
+    """
+    try:
+        from .services.forecast_service import OptimizedForecastService
+        from .models import WorkCalendar, Plan
+        from datetime import datetime, time, timedelta
+        
+        # 基本データ取得
+        try:
+            work_calendar = WorkCalendar.objects.get(line_id=line_id)
+            break_times = work_calendar.break_times or []
+        except WorkCalendar.DoesNotExist:
+            break_times = []
+        
+        # 現在時刻から対象時刻までの実作業時間を計算
+        # 24時間以上の場合は翌日として処理
+        current_hour_24 = current_hour % 24
+        target_hour_24 = hour_num % 24
+        
+        current_datetime = datetime.combine(date, time(int(current_hour_24), int((current_hour_24 % 1) * 60)))
+        target_datetime = datetime.combine(date, time(int(target_hour_24), int((target_hour_24 % 1) * 60)))
+        
+        # 夜勤対応（24時間以上は翌日）
+        if hour_num >= 24:
+            target_datetime += timedelta(days=1)
+        if current_hour >= 24:
+            current_datetime += timedelta(days=1)
+            
+        # 実作業時間を計算（休憩時間を除外）
+        actual_work_minutes = _calculate_actual_work_time(current_datetime, target_datetime, break_times)
+        # 予測終了時刻も24時間対応で処理
+        forecast_end_hour_24 = forecast_end_hour % 24
+        forecast_end_datetime = datetime.combine(date, time(int(forecast_end_hour_24), int((forecast_end_hour_24 % 1) * 60)))
+        if forecast_end_hour >= 24:
+            forecast_end_datetime += timedelta(days=1)
+            
+        total_work_minutes = _calculate_actual_work_time(current_datetime, forecast_end_datetime, break_times)
+        
+        if total_work_minutes > 0:
+            # 実作業時間比率に基づいた進捗計算
+            work_progress_ratio = actual_work_minutes / total_work_minutes
+            forecast_cumulative = current_actual + (remaining_planned * work_progress_ratio)
+            return int(forecast_cumulative)
+        else:
+            # 作業時間がない場合は現在実績を返す
+            return current_actual
+            
+    except Exception as e:
+        logger.warning(f"詳細時間別予測エラー: {e}, 簡易計算を使用")
+        # エラー時は従来の線形補間
+        progress_ratio = (hour_num - current_hour) / (forecast_end_hour - current_hour)
+        return int(current_actual + (remaining_planned * progress_ratio))
+
+
+def _calculate_actual_work_time(start_time, end_time, break_times):
+    """
+    開始時刻から終了時刻までの実作業時間を計算（休憩時間を除外）
+    
+    Args:
+        start_time: 開始時刻 (datetime)
+        end_time: 終了時刻 (datetime)
+        break_times: 休憩時間リスト
+        
+    Returns:
+        float: 実作業時間（分）
+    """
+    if end_time <= start_time:
+        return 0
+    
+    total_minutes = (end_time - start_time).total_seconds() / 60
+    break_minutes = 0
+    
+    for break_info in break_times:
+        try:
+            # 休憩時間を解析
+            break_start_time = datetime.strptime(break_info['start'], '%H:%M').time()
+            break_end_time = datetime.strptime(break_info['end'], '%H:%M').time()
+            
+            # 開始日付を基準に休憩時刻を設定
+            break_start = datetime.combine(start_time.date(), break_start_time)
+            break_end = datetime.combine(start_time.date(), break_end_time)
+            
+            # 日またぎ休憩の処理
+            if break_end_time < break_start_time:
+                break_end += timedelta(days=1)
+            
+            # 作業時間と休憩時間の重複を計算
+            overlap_start = max(start_time, break_start)
+            overlap_end = min(end_time, break_end)
+            
+            if overlap_start < overlap_end:
+                break_minutes += (overlap_end - overlap_start).total_seconds() / 60
+                
+        except (ValueError, KeyError) as e:
+            logger.warning(f"休憩時間解析エラー: {break_info}, {e}")
+            continue
+    
+    return max(0, total_minutes - break_minutes)
 
 
 def generate_hourly_data(line_id, date, plans, results):
@@ -1767,7 +1883,7 @@ def _get_monthly_graph_data_legacy(line_id, date):
         )
         
         part_actual = (
-            Result.objects.filter(
+            Result.objects.using('oracle').filter(
                 Q(plan__machine__in=active_machines) | Q(machine__in=active_machines),
                 Q(plan__part=part) | Q(part=part),
                 timestamp__date__in=month_dates,

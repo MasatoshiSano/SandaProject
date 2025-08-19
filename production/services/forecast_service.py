@@ -1026,6 +1026,8 @@ class OptimizedForecastService:
             return cached_actuals
         
         try:
+            from ..models import Machine
+            
             line_obj = Line.objects.get(id=line_id)
             line_name = line_obj.name
             part_names = [plan.part.name for plan in plans]
@@ -1033,13 +1035,21 @@ class OptimizedForecastService:
             if not part_names:
                 return {}
             
+            # カウント対象機械を取得
+            count_target_machines = Machine.objects.filter(
+                line_id=line_id, 
+                is_active=True,
+                is_count_target=True
+            ).values_list('name', flat=True)
+            
             # 日付範囲を設定
             start_str = target_date.strftime('%Y%m%d') + '000000'
             end_str = (target_date + timedelta(days=1)).strftime('%Y%m%d') + '000000'
             
-            # 一括クエリで実績を取得
+            # 一括クエリで実績を取得（機械フィルタを追加）
             results = Result.objects.using('oracle').filter(
                 line=line_name,
+                machine__in=count_target_machines,
                 part__in=part_names,
                 judgment='1',
                 timestamp__gte=start_str,

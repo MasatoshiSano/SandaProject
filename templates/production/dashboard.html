@@ -674,8 +674,9 @@ document.addEventListener('DOMContentLoaded', function() {
                     
                     // 予測線用のデータを準備
                     const forecastValues = data.map((d, index) => {
-                        const forecastItem = forecastData[index];
-                        return forecastItem ? forecastItem.forecast_cumulative : null;
+                        // 時間別データの時刻と一致する予測線データを探す
+                        const matchingForecast = forecastData.find(f => f.hour === d.hour);
+                        return matchingForecast ? matchingForecast.forecast_cumulative : null;
                     });
                     console.log('予測線値:', forecastValues);
                     
